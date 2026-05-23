@@ -1,19 +1,8 @@
-QMAKE_PROJECT_DEPTH = 0
-
 QT += core gui widgets
-
-greaterThan(QT_MAJOR_VERSION, 5) {
-	QT += core5compat
-}
-win32:lessThan(QT_MAJOR_VERSION, 6) {
-	QT += winextras
-}
 
 TARGET = TreeWalker
 TEMPLATE = app
-CONFIG += c++17
-
-DEFINES += NOMINMAX
+CONFIG += $$CPP_STD
 
 INCLUDEPATH += $$PWD/src
 # INCLUDEPATH += $$PWD/UGlobalHotkey/lib

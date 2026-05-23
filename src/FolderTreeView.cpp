@@ -253,6 +253,7 @@ FolderTreeItem *FolderTreeItem::takeChild(int row)
 		}
 		return child;
 	}
+	return {};
 }
 
 QString FolderTreeItem::text() const
