@@ -1,0 +1,23 @@
+#ifndef FILEINFO_H
+#define FILEINFO_H
+
+#include <string>
+#include "Dir.h"
+
+class FileInfo {
+private:
+	struct Private;
+	Private *m;
+public:
+	FileInfo();
+	FileInfo(std::string const &file);
+	virtual ~FileInfo();
+	bool isFile() const;
+	bool isDir() const;
+	bool isExecutable() const;
+	Dir dir() const;
+	std::string fileName() const;
+	std::string absoluteFilePath() const;
+};
+
+#endif // FILEINFO_H

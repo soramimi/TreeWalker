@@ -1,0 +1,5 @@
+build
+*.user
+_bin/
+_build-*
+*.autosave

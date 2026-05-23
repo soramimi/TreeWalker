@@ -1,0 +1,892 @@
+#include "misc.h"
+#include "joinpath.h"
+#include "q/FileInfo.h"
+#include "str.h"
+// #include "Git.h"
+#include <vector>
+
+#ifdef USE_QT
+#include <QFileInfo>
+#endif
+
+/**
+ * @brief 文字列を行に分割するためのテンプレート関数
+ *
+ * この関数は、与えられた文字列を行に分割し、指定された型のベクターとして返します。
+ * 分割は、改行文字（\n、\r）または文字列の終端で行われます。
+ *
+ * @tparam S 戻り値のベクターの要素の型（例: std::string, QString, std::string_view）
+ * @tparam C 入力文字列の文字型（例: char, ushort）
+ * @tparam U 文字コードの型（例: unsigned char, ushort）
+ * @param begin 分割する対象の文字列の開始位置
+ * @param size 分割する対象の文字列のサイズ
+ * @param keep_newline 改行文字を含めて行を格納する場合はtrue、そうでない場合はfalse
+ * @return 分割された行のリスト
+ */
+template <typename S, typename C, typename U> std::vector<S> t_splitLines(C const *begin, size_t size, bool keep_newline)
+{
+	std::vector<S> ret;
+	C const *end = begin + size;
+	C const *ptr = begin;
+	C const *left = ptr;
+	while (1) {
+		int c = 0;
+		if (ptr < end) {
+			c = (U)*ptr;
+		}
+		if (c == '\n' || c == '\r' || c == 0) {
+			C const *right = ptr;
+			if (c == '\n') {
+				ptr++;
+			} else if (c == '\r') {
+				ptr++;
+				if (ptr < end && *ptr == '\n') {
+					ptr++;
+				}
+			}
+			if (keep_newline) {
+				right = ptr;
+			}
+			ret.push_back(misc::str(left, right));
+			if (c == 0) break;
+			left = ptr;
+		} else {
+			ptr++;
+		}
+	}
+	return ret;
+}
+
+std::vector<std::string_view> misc::splitLinesV(std::string_view const &str)
+{
+	return t_splitLines<std::string_view, char, unsigned char>(str.data(), str.size(), false);
+}
+
+std::vector<std::string_view> misc::splitLinesV(std::vector<char> const &ba)
+{
+	return t_splitLines<std::string_view, char, unsigned char>(ba.data(), ba.size(), false);
+}
+
+std::vector<std::string_view> misc::splitLinesKeepNewLineV(std::string_view const &str)
+{
+	return t_splitLines<std::string_view, char, unsigned char>(str.data(), str.size(), true);
+}
+
+std::vector<std::string> misc::splitLines(std::string_view const &str)
+{
+	return t_splitLines<std::string, char, unsigned char>(str.data(), str.size(), false);
+}
+
+#ifdef USE_QT
+std::vector<QString> misc::splitLines(QString const &text)
+{
+	return t_splitLines<QString, ushort, ushort>(text.utf16(), text.size(), false);
+}
+#endif
+
+/**
+ * @brief 文字列を単語に分割する
+ * 
+ * 与えられた文字列を単語に分割し、std::string_viewのベクターとして返します。
+ * 分割は、空白文字を区切りとして行われます。
+ * 
+ * @param text 分割する対象の文字列
+ * @return 分割された単語のリスト
+ */
+std::vector<std::string_view> misc::splitWords(std::string_view const &text)
+{
+	std::vector<std::string_view> list;
+	char const *begin = text.data();
+	char const *end = begin + text.size();
+	char const *ptr = begin;
+	char const *left = ptr;
+	while (1) {
+		int c = 0;
+		if (ptr < end) {
+			c = (unsigned char)*ptr;
+		}
+		if (isspace(c) || c == 0) {
+			if (left < ptr) {
+				list.push_back(std::string_view(left, ptr - left));
+			}
+			if (c == 0) break;
+			ptr++;
+			left = ptr;
+		} else {
+			ptr++;
+		}
+	}
+	return list;
+}
+
+
+/**
+ *
+ */
+std::vector<std::string_view> misc::split(std::string_view const &sv, char sep)
+{
+	std::vector<std::string_view> ret;
+	char const *begin = sv.data();
+	char const *end = begin + sv.size();
+	char const *ptr = begin;
+	char const *left = ptr;
+	while (1) {
+		char const *right = ptr;
+		char c = 0;
+		if (ptr < end) {
+			c = *ptr;
+			ptr++;
+		}
+		if (c == 0 || c == sep) {
+			ret.emplace_back(left, right - left);
+			if (c == 0) break;
+			left = ptr;
+		}
+	}
+	return ret;
+}
+
+std::string misc::filename(std::string const &path)
+{
+	auto it = path.find_last_of("/\\");
+	return (it == std::string::npos) ? path : path.substr(it + 1);
+}
+
+/**
+ * @brief 文字列が指定の文字列で始まるか判定する
+ * 
+ * 与えられた文字列が、指定された文字列で始まるかどうかを判定します。
+ * 
+ * @param str チェックする対象の文字列
+ * @param with 先頭に存在するか確認する文字列
+ * @return 先頭がwithで始まる場合はtrue、そうでない場合はfalse
+ */
+bool misc::starts_with(std::string_view const &str, std::string_view const &with)
+{
+	if (str.size() < with.size()) return false;
+	return strncmp(str.data(), with.data(), with.size()) == 0;
+}
+
+bool misc::starts_with(std::string_view const &str, char with)
+{
+	return !str.empty() && str[0] == with;
+}
+
+/**
+ * @brief 文字列が指定の文字列で終わるか判定する
+ *
+ * 与えられた文字列が、指定された文字列で終わるかどうかを判定します。
+ *
+ * @param str チェックする対象の文字列
+ * @param with 終端に存在するか確認する文字列
+ * @return 終端がwithで終わる場合はtrue、そうでない場合はfalse
+ */
+bool misc::ends_with(std::string_view const &str, std::string_view const &with)
+{
+	if (str.size() < with.size()) return false;
+	return memcmp(str.data() + str.size() - with.size(), with.data(), with.size()) == 0;
+}
+
+bool misc::ends_with(std::string_view const &str, char with)
+{
+	return !str.empty() && str[str.size() - 1] == with;
+}
+
+/**
+ * @brief 文字列の一部分を取得する
+ * 
+ * 与えられた文字列の指定位置から、指定された長さの部分文字列を抽出します。
+ * 
+ * @param str 対象の文字列
+ * @param start 抽出を開始する位置のインデックス
+ * @param length 抽出する文字の数。負の場合は文字列の最後まで抽出する
+ * @return 抽出された部分文字列
+ */
+std::string misc::mid(std::string const &str, int start, int length)
+{
+	int size = (int)str.size();
+	if (length < 0) length = size;
+
+	length += start;
+	if (start < 0) start = 0;
+	if (length < 0) length = 0;
+	if (start > size) start = size;
+	if (length > size) length = size;
+	length -= start;
+
+	return std::string(str.c_str() + start, length);
+}
+
+/**
+ * @brief バックスラッシュをスラッシュに置換する
+ *
+ * 与えられた文字列内の全てのバックスラッシュ ('\\') をスラッシュ ('/') に置換します。
+ * 置換された新しい文字列が返されます。
+ *
+ * @param in 置換する対象の文字列
+ * @return バックスラッシュがスラッシュに置換された新しい文字列
+ */
+std::string misc::replace_backslash_to_slash(std::string_view const &in)
+{
+	std::string out;
+	for (size_t i = 0; i < in.size(); i++) {
+		char c = in[i];
+		if (c == '\\') {
+			c = '/';
+		}
+		out += c;
+	}
+	return out;
+}
+
+/**
+ * @brief パスの区切り文字を正規化する
+ * 
+ * パスの区切り文字をプラットフォームに合わせて正規化します。
+ * Windowsでは '/' を '\\' に変換し、
+ * Unix系プラットフォームでは変換を行いません。
+ * 
+ * @param str 正規化するパス文字列
+ * @return 正規化されたパス文字列
+ */
+#ifdef _WIN32
+#ifdef USE_QT
+QString misc::normalizePathSeparator(QString const &str)
+{
+	if (!str.isEmpty()) {
+		ushort const *s = str.utf16();
+		size_t n = str.size();
+		std::vector<ushort> v;
+		v.reserve(n);
+		for (size_t i = 0; i < n; i++) {
+			ushort c = s[i];
+			if (c == '/') {
+				c = '\\';
+			}
+			v.push_back(c);
+		}
+		ushort const *p = &v[0];
+		return QString::fromUtf16(p, n);
+	}
+	return QString();
+}
+#endif
+std::string misc::normalizePathSeparator(std::string const &str)
+{
+	std::string out;
+	for (size_t i = 0; i < str.size(); i++) {
+		char c = str[i];
+		if (c == '/') {
+			c = '\\';
+		}
+		out += c;
+	}
+	return out;
+}
+#else
+#ifdef USE_QT
+QString misc::normalizePathSeparator(QString const &str)
+{
+	return str;
+}
+#endif
+std::string misc::normalizePathSeparator(std::string const &str)
+{
+	return str;
+}
+#endif
+
+/**
+ * @brief メモリダンプを16進数で表示する
+ *
+ * 与えられたメモリ領域を16進数でダンプし、表示します。ダンプは、
+ * アドレス、16進数データ（最大16バイトずつ）、ASCII文字列表現の3つの列で構成されます。
+ * 表示されない制御文字はピリオド（.）で表示されます。
+ *
+ * @param ptr ダンプするメモリ領域の先頭ポインタ、nullptrの場合は何も表示しません
+ * @param len ダンプするメモリ領域の長さ（バイト数）
+ */
+void misc::dump(uint8_t const *ptr, size_t len)
+{
+	if (ptr && len > 0) {
+		size_t pos = 0;
+		while (pos < len) {
+			char tmp[100];
+			char *dst = tmp;
+			sprintf(dst, "%08llX ", ((unsigned long long)(pos)));
+			dst += 9;
+			for (int i = 0; i < 16; i++) {
+				if (pos + i < len) {
+					sprintf(dst, "%02X ", ptr[pos + i] & 0xff);
+				} else {
+					sprintf(dst, "   ");
+				}
+				dst += 3;
+			}
+			for (int i = 0; i < 16; i++) {
+				int c = ' ';
+				if (pos < len) {
+					c = ptr[pos] & 0xff;
+					if (!isprint(c)) {
+						c = '.';
+					}
+					pos++;
+				}
+				*dst = (char)c;
+				dst++;
+			}
+			*dst = 0;
+		}
+	}
+}
+
+/**
+ * @brief バイナリデータの内容をヘキサでダンプする
+ * 
+ * QByteArrayの内容をヘキサダンプ形式で表示します。
+ * 内部的にはdump(uint8_t const *, size_t)関数を使用して、
+ * QByteArrayの内容をバイト配列としてダンプします。
+ * 
+ * @param in ダンプするQByteArrayへのポインタ、nullptrの場合は何も表示しません
+ */
+#ifdef USE_QT
+void misc::dump(QByteArray const *in)
+{
+	if (in) {
+		dump((const uint8_t *)in->data(), in->size());
+	}
+}
+#endif
+
+/**
+ * @brief MIMEタイプがテキストファイルを表すか判定する
+ * 
+ * 与えられたMIMEタイプがテキストファイルを表すか判定します。
+ * 
+ * @param mimetype 判定するMIMEタイプ文字列
+ * @return テキストファイルを表す場合はtrue、そうでない場合はfalse
+ */
+bool misc::isText(std::string const &mimetype)
+{
+	return misc::starts_with(mimetype, "text/");
+}
+
+/**
+ * @brief MIMEタイプがSVG画像を表すか判定する
+ * 
+ * 与えられたMIMEタイプがSVG画像ファイルを表すか判定します。
+ * 
+ * @param mimetype 判定するMIMEタイプ文字列
+ * @return SVG画像を表す場合はtrue、そうでない場合はfalse
+ */
+bool misc::isSVG(std::string const &mimetype)
+{
+	if (mimetype == "image/svg") return true;
+	if (mimetype == "image/svg+xml") return true;
+	return false;
+}
+
+/**
+ * @brief MIMEタイプがPhotoshopファイルを表すか判定する
+ * 
+ * 与えられたMIMEタイプがAdobe Photoshopのファイルを表すか判定します。
+ * 
+ * @param mimetype 判定するMIMEタイプ文字列
+ * @return Photoshopファイルを表す場合はtrue、そうでない場合はfalse
+ */
+bool misc::isPSD(std::string const &mimetype)
+{
+	if (mimetype == "image/vnd.adobe.photoshop") return true;
+	return false;
+}
+
+/**
+ * @brief MIMEタイプがPDFファイルを表すか判定する
+ * 
+ * 与えられたMIMEタイプがPDFファイルを表すか判定します。
+ * 
+ * @param mimetype 判定するMIMEタイプ文字列
+ * @return PDFファイルを表す場合はtrue、そうでない場合はfalse
+ */
+bool misc::isPDF(std::string const &mimetype)
+{
+	if (mimetype == "application/pdf") return true;
+	return false;
+}
+
+/**
+ * @brief MIMEタイプが画像ファイルを表すか判定する
+ * 
+ * 与えられたMIMEタイプが画像ファイルを表すか判定します。
+ * PDFファイルや「image/」で始まる全てのMIMEタイプを画像として扱います。
+ * 
+ * @param mimetype 判定するMIMEタイプ文字列
+ * @return 画像ファイルを表す場合はtrue、そうでない場合はfalse
+ */
+bool misc::isImage(std::string const &mimetype)
+{
+#if 0
+	if (mimetype == "image/jpeg") return true;
+	if (mimetype == "image/jpg") return true;
+	if (mimetype == "image/png") return true;
+	if (mimetype == "image/gif") return true;
+	if (mimetype == "image/bmp") return true;
+	if (mimetype == "image/x-ms-bmp") return true;
+	if (mimetype == "image/x-icon") return true;
+	if (mimetype == "image/tiff") return true;
+	if (isSVG(mimetype)) return true;
+	if (isPSD(mimetype)) return true;
+	return false;
+#else
+	if (isPDF(mimetype)) return true;
+	return misc::starts_with(mimetype, "image/");
+#endif
+}
+
+/**
+ * @brief プロキシサーバーURLを正規化する
+ * 
+ * 入力されたプロキシサーバーのURLを正規化します。
+ * プロトコルが指定されていない場合は "http://" を付加し、
+ * 末尾にスラッシュがない場合は付加します。
+ * 
+ * @param text 正規化するプロキシサーバーURL文字列
+ * @return 正規化されたプロキシサーバーURL
+ */
+std::string misc::makeProxyServerURL(std::string text)
+{
+	if (!text.empty() && !strstr(text.c_str(), "://")) {
+		text = "http://" + text;
+		if (text[text.size() - 1] != '/') {
+			text += '/';
+		}
+	}
+	return text;
+}
+
+/**
+ * @brief ファイルが実行可能か判定する
+ * 
+ * 指定されたファイルパスが実行可能なファイルを指しているか判定します。
+ * 
+ * @param cmd 判定するファイルパス
+ * @return 実行可能な場合はtrue、そうでない場合はfalse
+ */
+bool misc::isExecutable(std::string const &cmd)
+{
+	FileInfo info(cmd);
+	return info.isExecutable();
+}
+#ifdef USE_QT
+bool misc::isExecutable(QString const &cmd)
+{
+	QFileInfo info(cmd);
+	return info.isExecutable();
+}
+#endif
+
+/**
+ * @brief 文字列が有効なメールアドレスか判定する
+ * 
+ * 文字列が有効なメールアドレス形式かどうかを判定します。
+ * 単純に@記号が含まれており、先頭でも末尾でもないことを確認します。
+ * 
+ * @param email 検証するメールアドレス文字列
+ * @return 有効なメールアドレス形式の場合はtrue、そうでない場合はfalse
+ */
+template <typename T> bool t_isValidMailAddress(T const *ptr)
+{
+	int i = 0;
+	while (ptr[i]) {
+		if (ptr[i] == '@') {
+			return i > 0 && ptr[i + 1];
+		}
+		i++;
+	}
+	return false;
+}
+bool misc::isValidMailAddress(const std::string &email)
+{
+	return t_isValidMailAddress(email.c_str());
+}
+#ifdef USE_QT
+bool misc::isValidMailAddress(const QString &email)
+{
+	return t_isValidMailAddress(email.utf16());
+}
+#endif
+
+/**
+ * @brief 文字列の両端から空白文字を取り除く
+ * 
+ * 文字列の先頭と末尾から空白文字（スペース、タブ、改行など）を削除します。
+ * 元の文字列は変更せず、新しいstring_viewを返します。
+ * 
+ * @param s トリムする文字列
+ * @return 両端の空白が削除された文字列ビュー
+ */
+std::string_view misc::trimmed(const std::string_view &s)
+{
+	size_t i = 0;
+	size_t j = s.size();
+	while (i < j && std::isspace((unsigned char)s[i])) i++;
+	while (i < j && std::isspace((unsigned char)s[j - 1])) j--;
+	return s.substr(i, j - i);
+}
+
+/**
+ * @brief 文字列の両端から空白文字と引用符を取り除く
+ * 
+ * 文字列の先頭と末尾から空白文字を削除し、その後引用符（'"'または'\'')で囲まれている場合は
+ * それらの引用符も削除します。元の文字列は変更せず、新しいstring_viewを返します。
+ * 
+ * @param s トリムする文字列
+ * @return 両端の空白と引用符が削除された文字列ビュー
+ */
+std::string_view misc::trimQuotes(std::string_view s)
+{
+	s = trimmed(s);
+	if (s.size() >= 2) {
+		if (s[0] == '"' && s[s.size() - 1] == '"') {
+			s = s.substr(1, s.size() - 2);
+		} else if (s[0] == '\'' && s[s.size() - 1] == '\'') {
+			s = s.substr(1, s.size() - 2);
+		}
+	}
+	return s;
+}
+
+/**
+ * @brief 文字列の両端から改行文字を取り除く
+ * 
+ * 文字列の先頭と末尾から改行文字（CR、LF、CRLF）を削除します。
+ * 元の文字列は変更せず、新しいstring_viewを返します。
+ * CR+LFの組み合わせは1つの改行として扱われます。
+ * 
+ * @param s トリムする文字列
+ * @return 両端の改行が削除された文字列ビュー
+ */
+std::string_view misc::trimNewLines(std::string_view s)
+{
+	size_t i = 0;;
+	size_t j = s.size();
+	if (i < j) {
+		if (s[i] == '\r') {
+			i++;
+			if (i < j && s[i] == '\n') {
+				i++;
+			}
+		} else if (s[i] == '\n') {
+			i++;
+		}
+	}
+	if (i < j) {
+		if (s[j - 1] == '\n') {
+			j--;
+			if (j > i && s[j - 1] == '\r') {
+				j--;
+			}
+		} else if (s[j - 1] == '\r') {
+			j--;
+		}
+	}
+	return s.substr(i, j - i);
+}
+
+
+/**
+ * @brief バイナリデータを16進数文字列に変換する
+ * 
+ * バイナリデータ（バイト列）を16進数表記の文字列に変換します。
+ * 各バイトは2桁の16進数で表現されます（00-FF）。
+ * 
+ * @param begin 変換するバイナリデータの先頭ポインタ
+ * @param end 変換するバイナリデータの終端ポインタ（変換対象に含まれない）
+ * @return 16進数文字列
+ */
+std::string misc::bin_to_hex_string(const void *begin, const void *end)
+{
+	std::vector<char> vec;
+	uint8_t const *p = (uint8_t const *)begin;
+	uint8_t const *e = (uint8_t const *)end;
+	vec.reserve((e - p) * 2);
+	while (p < e) {
+		char tmp[3];
+		sprintf(tmp, "%02x", *p);
+		vec.push_back(tmp[0]);
+		vec.push_back(tmp[1]);
+		p++;
+	}
+	return std::string(&vec[0], vec.size());
+}
+
+/**
+ * @brief 16進数文字列をバイナリデータに変換する
+ * 
+ * 16進数表記の文字列をバイナリデータ（バイト列）に変換します。
+ * 文字列には2桁の16進数表記（00-FF）を含める必要があります。
+ * オプションで区切り文字を指定することもできます。
+ * 
+ * @param s 変換する16進数文字列
+ * @param sep 区切り文字の文字列。区切り文字はスキップされる。nullptrの場合は区切り文字なし
+ * @return 変換されたバイナリデータ
+ */
+std::vector<uint8_t> misc::hex_string_to_bin(const std::string_view &s, char const *sep)
+{
+	std::vector<uint8_t> vec;
+	vec.reserve(s.size() / 2);
+	unsigned char const *begin = (unsigned char const *)s.data();
+	unsigned char const *end = begin + s.size();
+	unsigned char const *p = begin;
+	while (p + 1 < end) {
+		if (isxdigit(p[0]) && isxdigit(p[1])) {
+			char tmp[3];
+			tmp[0] = p[0];
+			tmp[1] = p[1];
+			tmp[2] = 0;
+			uint8_t c = (uint8_t)strtol(tmp, nullptr, 16);
+			vec.push_back(c);
+			p += 2;
+		} else if (sep && strchr(sep, *p)) {
+			p++;
+		} else {
+			break;
+		}
+	}
+	return vec;
+}
+
+/**
+ * @brief 2つのバイナリデータを比較する
+ * 
+ * 2つのバイト配列を辞書的に比較します。最初に異なるバイトが見つかった時点で
+ * その大小関係を返します。同じバイト列で長さが異なる場合は、長い方が大きいと判定されます。
+ * 
+ * @param a 比較する最初のバイト配列
+ * @param n 最初の配列の長さ
+ * @param b 比較する2番目のバイト配列
+ * @param m 2番目の配列の長さ
+ * @return a < b の場合は-1、a > b の場合は1、a == b の場合は0
+ */
+int misc::compare(uint8_t const *a, size_t n, uint8_t const *b, size_t m)
+{
+	size_t i = 0;
+	while (1) {
+		if (i < n && i < m) {
+			uint8_t c = a[i];
+			uint8_t d = b[i];
+			if (c < d) return -1;
+			if (c > d) return 1;
+			i++;
+		} else if (i < n) {
+			return 1;
+		} else if (i < m) {
+			return -1;
+		} else {
+			return 0;
+		}
+	}
+	return 0;
+}
+
+/**
+ * @brief 2つのバイトベクターを比較する
+ * 
+ * 2つのバイトベクターを辞書的に比較します。
+ * 内部的にはcompare関数を使用して、ベクターの内容と長さを比較します。
+ * 
+ * @param a 比較する最初のバイトベクター
+ * @param b 比較する2番目のバイトベクター
+ * @return a < b の場合は-1、a > b の場合は1、a == b の場合は0
+ */
+int misc::compare(const std::vector<uint8_t> &a, const std::vector<uint8_t> &b)
+{
+	return compare(a.data(), a.size(), b.data(), b.size());
+}
+
+std::string misc::toLower(const std::string_view &s)
+{
+	std::string ret;
+	ret.reserve(s.size());
+	for (char c : s) {
+		ret.push_back(std::tolower((unsigned char)c));
+	}
+	return ret;
+}
+
+std::string misc::toUpper(const std::string_view &s)
+{
+	std::string ret;
+	ret.reserve(s.size());
+	for (char c : s) {
+		ret.push_back(std::toupper((unsigned char)c));
+	}
+	return ret;
+}
+
+std::u16string misc::convert_utf8_to_utf16(const std::string_view &s)
+{
+	std::u16string out;
+	const char *ptr = s.data();
+	const char *end = ptr + s.size();
+	while (ptr < end) {
+		char32_t c = 0;
+		unsigned char b = (unsigned char)*ptr;
+		if (b < 0x80) {
+			c = b;
+			ptr++;
+		} else if ((b & 0xe0) == 0xc0) {
+			if (ptr + 1 >= end) break;
+			c = ((b & 0x1f) << 6) | ((unsigned char)ptr[1] & 0x3f);
+			ptr += 2;
+		} else if ((b & 0xf0) == 0xe0) {
+			if (ptr + 2 >= end) break;
+			c = ((b & 0x0f) << 12) | (((unsigned char)ptr[1] & 0x3f) << 6) | ((unsigned char)ptr[2] & 0x3f);
+			ptr += 3;
+		} else if ((b & 0xf8) == 0xf0) {
+			if (ptr + 3 >= end) break;
+			c = ((b & 0x07) << 18) | (((unsigned char)ptr[1] & 0x3f) << 12) | (((unsigned char)ptr[2] & 0x3f) << 6) | ((unsigned char)ptr[3] & 0x3f);
+			ptr += 4;
+		} else {
+			// invalid
+			ptr++;
+			continue;
+		}
+		if (c <= 0xffff) {
+			out.push_back((char16_t)c);
+		} else {
+			c -= 0x10000;
+			out.push_back((char16_t)(0xd800 + (c >> 10)));
+			out.push_back((char16_t)(0xdc00 + (c & 0x3ff)));
+		}
+	}
+	return out;
+}
+
+std::string misc::convert_utf16_to_utf8(const std::u16string_view &s)
+{
+	std::string out;
+	const char16_t *ptr = s.data();
+	const char16_t *end = ptr + s.size();
+	while (ptr < end) {
+		char32_t c = 0;
+		char16_t b = *ptr;
+		if (b < 0xd800 || b >= 0xe000) {
+			c = b;
+			ptr++;
+		} else if (b < 0xdc00) {
+			if (ptr + 1 >= end) break;
+			c = ((b - 0xd800) << 10) | (ptr[1] - 0xdc00);
+			ptr += 2;
+		} else {
+			// invalid
+			ptr++;
+			continue;
+		}
+		if (c < 0x80) {
+			out.push_back((char)c);
+		} else if (c < 0x800) {
+			out.push_back((char)(0xc0 | (c >> 6)));
+			out.push_back((char)(0x80 | (c & 0x3f)));
+		} else if (c < 0x10000) {
+			out.push_back((char)(0xe0 | (c >> 12)));
+			out.push_back((char)(0x80 | ((c >> 6) & 0x3f)));
+			out.push_back((char)(0x80 | (c & 0x3f)));
+		} else {
+			out.push_back((char)(0xf0 | (c >> 18)));
+			out.push_back((char)(0x80 | ((c >> 12) & 0x3f)));
+			out.push_back((char)(0x80 | ((c >> 6) & 0x3f)));
+			out.push_back((char)(0x80 | (c & 0x3f)));
+		}
+	}
+	return out;
+}
+
+/**
+ * @brief VTシーケンスを取り除く
+ *
+ * 文字列からVT（バーチャルターミナル）シーケンスを取り除き、通常のテキストのみを抽出します。
+ * VTシーケンスはエスケープ文字（0x1b）で始まり、特定のパターンに従います。
+ * この関数は、エスケープシーケンスを正しく認識し、それらをスキップしてテキスト部分だけを返します。
+ *
+ * @param s VTシーケンスを含む可能性のある入力文字列
+ * @return VTシーケンスが取り除かれた通常のテキスト文字列
+ */
+std::string misc::strip_vt(const std::string_view &s)
+{
+	std::vector<char> out;
+	char const *begin = s.data();
+	char const *end = begin + s.size();
+	char const *ptr = begin;
+	while (ptr < end) {
+		if (*ptr == 0x1b) {
+			ptr++;
+			if (ptr < end && *ptr == '[') {
+				ptr++;
+				while (ptr < end && (unsigned char)*ptr >= 0x20 && (unsigned char)*ptr <= 0x3f) ptr++;
+				if (ptr < end && (unsigned char)*ptr >= 0x40 && (unsigned char)*ptr <= 0x7e) ptr++;
+			} else if (ptr < end && *ptr == ']') {
+				ptr++;
+				while (ptr < end) {
+					if (*ptr == 0x07) { // BEL
+						ptr++;
+						break;
+					}
+					if (*ptr == 0x1b && ptr + 1 < end && ptr[1] == '\\') { // ST
+						ptr += 2;
+						break;
+					}
+					ptr++;
+				}
+			} else if (ptr < end) {
+				ptr++; // 2-char ESC sequence
+			}
+		} else {
+			out.push_back(*ptr++);
+		}
+	}
+	return std::string(out.data(), out.size());
+}
+
+/**
+ * コマンドラインから実行ファイル名を抜き取る。
+ * 例: "C:\Program Files\MyApp\app.exe" --option -> C:\Program Files\MyApp\app.exe
+ */
+std::string misc::getProgram(std::string const &cmdline)
+{
+	char const *begin = cmdline.c_str();
+	char const *end = begin + cmdline.size();
+	char const *ptr = begin;
+	bool quote = 0;
+	while (1) {
+		char c = 0;
+		if (ptr < end) {
+			c = *ptr;
+		}
+		if (c == '\"') {
+			if (quote) {
+				quote = false;
+			} else {
+				quote = true;
+			}
+			ptr++;
+		} else if (quote && c != 0) {
+			ptr++;
+		} else if (QChar(c).isSpace() || c == 0) {
+			break;
+		} else {
+			ptr++;
+		}
+	}
+	char const *left = begin;
+	char const *right = ptr;
+	if (left + 1 < right) {
+		if (left[0] == '\"' && right[-1] == '\"') {
+			left++;
+			right--;
+		}
+	}
+	return std::string(left, right);
+}
+
+
