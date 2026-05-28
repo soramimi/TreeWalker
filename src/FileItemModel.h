@@ -1,6 +1,8 @@
 #ifndef FILEITEMMODEL_H
 #define FILEITEMMODEL_H
 
+#include "AbstractFileSystemProvider.h"
+
 #include <QAbstractItemModel>
 #include <QDateTime>
 #include <QIcon>
@@ -26,13 +28,18 @@ class FileItemModel : public QAbstractItemModel {
 	Q_OBJECT
 public:
 	struct Item {
+		FileInfo2 info;
 		QString name;
 		QString path;
-		QIcon icon;
+		QIcon icon_;
 		qint64 size = -1;
 		QString type;
 		QDateTime modified;
 		bool hidden = false;
+		QIcon icon() const
+		{
+			return icon_;
+		}
 	};
 	QList<Item> items;
 	Kind kind_ = Kind::File;

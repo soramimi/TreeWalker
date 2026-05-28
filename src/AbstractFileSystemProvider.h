@@ -32,8 +32,6 @@ struct FileInfo2 {
 	}
 };
 
-QIcon getIcon(const QFileIconProvider *iconprov, FileInfo2 const &info);
-
 class AbstractFileSystemProvider {
 public:
 	virtual QString currentDir() const = 0;

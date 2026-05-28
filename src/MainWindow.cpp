@@ -10,6 +10,7 @@
 #include "joinpath.h"
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QElapsedTimer>
 #include <QFileIconProvider>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -72,15 +73,17 @@ struct MainWindow::Private {
 	StatusLabel *status_label;
 	QTimer update_list_timer;
 	FileSystemProviderPtr fs_factory;
-	QFileIconProvider icon_provider;
 #ifdef Q_OS_WIN
 	FolderTreeItem *my_computer_item;
 #else
 	FolderTreeItem *root_dir_item;
 #endif
 	FolderTreeItem *bookmarks_root_item;
+
+	QFileIconProvider icon_provider;
 	QIcon default_file_icon;
 	QIcon default_folder_icon;
+
 	std::map<QString, QList<BookmarkInfo>> bookmark_items;
 
 	LocationData current_location;
@@ -88,6 +91,8 @@ struct MainWindow::Private {
 	QList<std::shared_ptr<FetchLocationThread>> fetch_location_threads;
 
 	bool hidden_files_visible = false;
+
+	std::map<QString, QIcon> icon_cache;
 };
 
 QString getDisplayName(FileInfo2 const &info)
@@ -198,7 +203,7 @@ void MainWindow::setStatusBarText(QString const &text)
 	m->status_label->setText(text);
 }
 
-void MainWindow::setTreeViewItemData(FolderTreeItem *item, Kind kind, FileInfo2 const &info)
+void MainWindow::setTreeViewSubDirItemData(FolderTreeItem *item, FileInfo2 const &info)
 {
 	QString path = info.path;
 	ItemIdList iidl = info.iidl;
@@ -211,15 +216,33 @@ void MainWindow::setTreeViewItemData(FolderTreeItem *item, Kind kind, FileInfo2 
 	}
 #endif
 	item->setText(0, getDisplayName(info));
-	item->setData(0, KindRole, (int)kind);
+	item->setData(0, KindRole, (int)Kind::SubDirectory);
 	item->setData(0, NameRole, info.name);
 	item->setData(0, PathRole, path);
 	item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(iidl));
-	item->setIcon(0, getIcon(&m->icon_provider, info));
+	// item->setIcon(0, getIcon(info));
 }
 
-void MainWindow::makeTree(Kind kind, AbstractFileSystemProvider *fs, FolderTreeView *tree_widget, FolderTreeItem *parent, add_tree_child_fn_r tree_adder, TreeInfo *find)
+void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent, TreeInfo *find)
 {
+	clearIconCache();
+
+	QList<FileInfo2> dirs;
+
+	while (fs->fetch()) {
+		FileInfo2 info = fs->fileInfo();
+		if (info.isdir) {
+			QString name = info.name;
+			if (name == "." || name == "..") {
+				continue;
+			}
+			if (!m->hidden_files_visible && name.startsWith('.')) {
+				continue;
+			}
+			dirs.push_back(info);
+		}
+	}
+
 	ui->treeView->beginResetModel();
 
 	{ // remove placeholder
@@ -230,30 +253,16 @@ void MainWindow::makeTree(Kind kind, AbstractFileSystemProvider *fs, FolderTreeV
 		}
 	}
 
-	if (kind == Kind::SubDirectory) {
-		QList<FileInfo2> dirs;
-		while (fs->fetch()) {
-			FileInfo2 info = fs->fileInfo();
-			QString name = info.name;
-			if (info.isdir) {
-				if (name == "." || name == "..") {
-					continue;
-				}
-				if (!m->hidden_files_visible && name.startsWith('.')) {
-					continue;
-				}
-				dirs.push_back(info);
-			}
-		}
+	if (!dirs.isEmpty()) {
 		sortFileInfoList(&dirs);
 		for (FileInfo2 const &info: dirs) {
 			auto item = new_FolderTreeItem();
-			setTreeViewItemData(item, kind, info);
+			setTreeViewSubDirItemData(item, info);
 			auto placeholder = new_FolderTreeItem();
 			placeholder->setText(0, info.path);
 			placeholder->setData(0, KindRole, (int)Kind::Placeholder);
 			item->addChild(placeholder);
-			tree_adder(tree_widget, parent, item);
+			parent->addChild(item);
 			if (find) {
 #ifdef Q_OS_WIN
 				int len = info.iidl.size();
@@ -279,7 +288,7 @@ void MainWindow::makeTree(Kind kind, AbstractFileSystemProvider *fs, FolderTreeV
 		}
 	}
 
-	// ui->treeView->endResetModel();
+	ui->treeView->endResetModel();
 }
 
 FolderTreeItem *MainWindow::makeTreeCompletely()
@@ -289,7 +298,7 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	auto fs = m->fs_factory->create(m->fs_factory->firstFileInfo().iidl);
 	FileInfo2 info = fs->firstFileInfo();
 	auto rootitem = new_FolderTreeItem();
-	setTreeViewItemData(rootitem, Kind::SubDirectory, info);
+	setTreeViewSubDirItemData(rootitem, info);
 
 #ifdef Q_OS_WIN
 	m->my_computer_item = new_FolderTreeItem();
@@ -304,11 +313,7 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	m->root_dir_item = rootitem;
 #endif
 
-
-	auto tree_item_adder = [](FolderTreeView *tree_widget, FolderTreeItem *parent, FolderTreeItem *item){
-		parent->addChild(item);
-	};
-	makeTree(Kind::SubDirectory, fs.get(), ui->treeView, rootitem, tree_item_adder);
+	makeTree(fs.get(), rootitem);
 
 	m->bookmarks_root_item = new_FolderTreeItem();
 	m->bookmarks_root_item->setText(0, tr("Bookmarks"));
@@ -360,14 +365,9 @@ void MainWindow::fetchSubFolders(FolderTreeItem *parent)
 		if (parent->childCount() == 1) {
 			FolderTreeItem *child = parent->child(0);
 			if ((Kind)child->data(0, KindRole).toInt() == Kind::Placeholder) {
-
-				auto tree_item_adder = [](FolderTreeView *tv, FolderTreeItem *parent, FolderTreeItem *item){
-					parent->addChild(item);
-				};
-
 				ItemIdList iidl = parent->data(0, IidlRole).value<ItemIdList>();
 				FileSystemProviderPtr fs = newFileSystemPtr(iidl);
-				makeTree(Kind::SubDirectory, fs.get(), ui->treeView, parent, tree_item_adder);
+				makeTree(fs.get(), parent);
 			}
 		}
 	}
@@ -722,6 +722,37 @@ void MainWindow::sortFileInfoList(QList<FileInfo2> *list)
 	});
 }
 
+void MainWindow::clearIconCache()
+{
+	m->icon_cache.clear();
+}
+
+QIcon MainWindow::getIcon(const FileInfo2 &info)
+{
+	QFileIconProvider const &iconprov = m->icon_provider;
+
+	if (!info.icon.isNull()) {
+		return info.icon;
+	}
+	if (info.isdir) {
+		return iconprov.icon(QFileIconProvider::Folder);
+	} else {
+		auto it = m->icon_cache.find(info.path);
+		if (it != m->icon_cache.end()) {
+			return it->second;
+		}
+		QFileInfo info_(info.path);
+		if (info_.isFile()) {
+			QIcon icon = iconprov.icon(info_);
+			if (!icon.isNull()) {
+				m->icon_cache[info.path] = icon;
+				return icon;
+			}
+		}
+		return iconprov.icon(QFileIconProvider::File);
+	}
+}
+
 void MainWindow::onRefreshFileListDone(LocationData const &loc)
 {
 	refreshFileList2(loc, false);
@@ -766,6 +797,9 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 
 	auto *model = fileitemmodel();
 
+	QElapsedTimer t;
+	t.start();
+
 	{
 		DeferResetModel defer1(model);
 
@@ -776,10 +810,9 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 				FileInfo2 const &info = loc.files[row];
 				if (!m->hidden_files_visible && info.ishidden) continue;
 				FileItemModel::Item fileitem;
-				QIcon icon = getIcon(&m->icon_provider, info);
+				fileitem.info = info;
 				fileitem.name = nameText(info);
 				fileitem.path = info.path;
-				fileitem.icon = icon;
 				if (info.isdir) {
 					fileitem.size = -1;
 					fileitem.type = "<DIR>";
@@ -803,11 +836,13 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 				BookmarkInfo const &info = items[row];
 				fileitem.name = info.name;
 				fileitem.path = info.url;
-				fileitem.icon = info.url.endsWith(" /") ? m->default_folder_icon : m->default_file_icon;
+				fileitem.icon_ = info.url.endsWith(" /") ? m->default_folder_icon : m->default_file_icon;
 				model->items.push_back(fileitem);
 			}
 		}
 	}
+
+	// qDebug() << t.elapsed();
 
 	m->file_item_model.setKind(loc.kind);
 	ui->tableView->setKind(loc.kind);
@@ -1177,13 +1212,14 @@ void MainWindow::on_action_view_thumbnails_triggered()
 void MainWindow::on_action_view_hide_item_triggered()
 {
 	QString path = currentPath();
-	qDebug() << path;
+	// qDebug() << path;
 }
 
 void MainWindow::on_treeView_itemExpanded(FolderTreeItem *item)
 {
 	if (item) {
 		fetchSubFolders(item);
+		// ui->treeView->setExpanded(item, true);
 	}
 }
 

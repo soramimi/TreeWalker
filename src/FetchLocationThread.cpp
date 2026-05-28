@@ -32,7 +32,7 @@ void FetchLocationThread::run()
 	MainWindow::sortFileInfoList(&data.files);
 
 	int ms = t.elapsed();
-	qDebug() << "FetchLocationThread: fetched " << data.files.size() << " items in " << ms << " ms";
+	// qDebug() << "FetchLocationThread: fetched " << data.files.size() << " items in " << ms << " ms";
 	constexpr int debounce_time_ms = 300;
 	if (ms < debounce_time_ms) {
 		msleep(debounce_time_ms - ms);

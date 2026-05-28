@@ -24,7 +24,7 @@ class FolderTreeView;
 struct IShellFolder;
 #endif
 
-using add_tree_child_fn_r = std::function<void(FolderTreeView *widget, FolderTreeItem *parent, FolderTreeItem *item)>;
+using add_tree_child_fn_r = std::function<void(FolderTreeItem *parent, FolderTreeItem *item)>;
 
 struct LocationData {
 	Kind kind;
@@ -81,6 +81,9 @@ public:
 	void setFocusFolderTree();
 	void show();
 	FileItemModel *fileitemmodel();
+	QIcon getIcon(const FileInfo2 &info);
+private:
+	void clearIconCache();
 private slots:
 	void onHotKey(size_t id);
 	void onRefreshFileListDone(const LocationData &loc);
@@ -111,12 +114,12 @@ private:
 #endif
 		FolderTreeItem *treeitem;
 	};
-	void makeTree(Kind kind, AbstractFileSystemProvider *fs, FolderTreeView *tree_widget, FolderTreeItem *parent, add_tree_child_fn_r tree_adder, TreeInfo *find = nullptr);
+	void makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent, TreeInfo *find = nullptr);
 	void fetchSubFolders(FolderTreeItem *parent = {});
 
 	FolderTreeItem *findBookmarkTreeItem(QString const &path, FolderTreeItem *item);
 #ifdef Q_OS_WIN
-        FolderTreeItem *openDirWindows(const ItemIdList &iidl);
+	FolderTreeItem *openDirWindows(const ItemIdList &iidl);
 #else
 	FolderTreeItem *openDirPosix(const ItemIdList &iidl);
 #endif
@@ -130,7 +133,7 @@ private:
 	void renameFolder(const QString &location);
 	void setAppSettings(const ApplicationSettings &appsettings);
 	void setHiddenFilesVisible(bool f);
-	void setTreeViewItemData(FolderTreeItem *rootitem, Kind kind, const FileInfo2 &info);
+	void setTreeViewSubDirItemData(FolderTreeItem *rootitem, const FileInfo2 &info);
 	void moveToParent();
 	QString currentPath() const;
 	ItemIdList currentIIDL() const;

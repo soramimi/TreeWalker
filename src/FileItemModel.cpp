@@ -1,4 +1,6 @@
 #include "FileItemModel.h"
+#include "ApplicationGlobal.h"
+#include "MainWindow.h"
 
 FileItemModel::FileItemModel(QWidget *parent)
 	: QAbstractItemModel(parent)
@@ -87,7 +89,8 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 			return text;
 		case Qt::DecorationRole:
 			if (col == 0) {
-				return items[row].icon;
+				return global->mainwindow->getIcon(items[row].info);
+				// return items[row].icon;
 			}
 			break;
 		case Qt::SizeHintRole:
