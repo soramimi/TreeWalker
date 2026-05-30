@@ -39,7 +39,11 @@ bool WindowsFileSystemProvider::isPhysicalFilesystemFolder(void const *iidl)
 bool WindowsFileSystemProvider::isPhysicalFilesystemFolder(ItemIdList const &iidl)
 {
 	if (iidl.type() == ItemIdList::Type::PATH) {
-		QFileInfo qfi(iidl.path());
+		QString path = iidl.path();
+		if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
+			return false;
+		}
+		QFileInfo qfi(path);
 		return qfi.isDir() && !qfi.isSymLink();
 	}
 	if (iidl.size() < 2) return false;

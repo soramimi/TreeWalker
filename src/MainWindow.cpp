@@ -26,8 +26,8 @@
 #include "WindowsShellAPI.h"
 #endif
 
-static QString prefix_mycomputer = "//mycomputer//";
-static QString prefix_bookmark = "//bookmark//";
+QString prefix_mycomputer = "//mycomputer//";
+QString prefix_bookmark = "//bookmark//";
 
 QString dumpByteArray(QByteArray const &ba)
 {
@@ -319,10 +319,8 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 #endif
 			}
 		}
-		QElapsedTimer t;
-		t.start();
+
 		ui->treeView->setExpanded(parent, true);
-		qDebug() << t.elapsed();
 	}
 }
 
@@ -342,7 +340,7 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	m->my_computer_item->addChild(m->root_dir_item);
 	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(prefix_mycomputer));
 // #ifdef Q_OS_WIN
-// 	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(QString("///")));
+	// m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(QString("///")));
 // #else
 // #endif
 
@@ -957,7 +955,9 @@ void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderT
 	m->thumbnail_loader.clearRequests();
 
 	bool ok = false;
-	if (loc.startsWith(prefix_bookmark)) {
+	if (loc.startsWith(prefix_mycomputer)) {
+		ok = true;
+	} else if (loc.startsWith(prefix_bookmark)) {
 		ok = true;
 	} else if (loc.startsWith("iidl:")) {
 		ok = true;
@@ -1212,8 +1212,6 @@ void MainWindow::fetchBookmarks()
 	}
 	ui->treeView->setExpanded(m->bookmarks_root_item, true);
 }
-
-
 
 QList<FileInfo2> MainWindow::windowsMyComputerFiles()
 {
