@@ -42,6 +42,8 @@ public:
 	virtual FileSystemProviderPtr create(ItemIdList const &iidl) = 0;
 	virtual FileInfo2 firstFileInfo() const = 0;
 	virtual bool hasReadPermission() const = 0;
+
+	virtual std::shared_ptr<AbstractFileSystemProvider> dup(ItemIdList const &iidl) = 0;
 };
 
 

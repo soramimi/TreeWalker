@@ -142,6 +142,7 @@ private:
 	void toggleTreeItemExpansion();
 	FolderTreeItem *makeTreeCompletely();
 	void setCurrentIIDL(ItemIdList iidl);
+	bool hasSubDir(AbstractFileSystemProvider *fs, const ItemIdList &iidl);
 protected:
 	bool acceptKeyEvent(QKeyEvent *event);
 	void keyPressEvent(QKeyEvent *);

@@ -124,16 +124,12 @@ public:
 	}
 	void clear()
 	{
-		beginResetModel();
-
 		top_level_items_.children()->clear();
 
 		for (FolderTreeItem *child : item_set_) {
 			delete child;
 		}
 		item_set_.clear();
-
-		endResetModel();
 	}
 	QModelIndex index(int row, int column, const QModelIndex &parent) const
 	{
@@ -230,6 +226,17 @@ public:
 		}
 		return {};
 	}
+
+	// QAbstractItemModel interface
+public:
+	bool hasChildren(const QModelIndex &parent) const
+	{
+		FolderTreeItem *item = itemFromIndex(parent);
+		if (!item) {
+			return !top_level_items_.children()->empty();
+		}
+		return !item->children()->empty();
+	}
 };
 
 void FolderTreeItem::addChild(FolderTreeItem *child)
@@ -237,20 +244,33 @@ void FolderTreeItem::addChild(FolderTreeItem *child)
 	child->parent_ = this;
 	children_.push_back(child);
 	clearChildrenCache(); // invalidate cache
+
 	if (model_) {
-		model_->_insertChild(child);
+		model_->beginInsertRows(model_->indexFromItem(this), children_.size() - 1, children_.size() - 1);
+
+		auto InsertChildren = [&](auto self, FolderTreeItem *item)-> void {
+			model_->_insertChild(item);
+			for (FolderTreeItem *child : *item->children()) {
+				self(self, child);
+			}
+		};
+		InsertChildren(InsertChildren, child);
+
+		model_->endInsertRows();
 	}
 }
 
 FolderTreeItem *FolderTreeItem::takeChild(int row)
 {
 	if (row >= 0 && row < children_.size()) {
+		model_->beginRemoveRows(model_->indexFromItem(this), row, row);
 		FolderTreeItem *child = children_[row];
 		children_.erase(children_.begin() + row);
 		clearChildrenCache();
 		if (model_) {
 			model_->_detach(child);
 		}
+		model_->endRemoveRows();
 		return child;
 	}
 	return {};
@@ -372,7 +392,8 @@ bool FolderTreeView::isExpanded(FolderTreeItem *item) const
 
 void FolderTreeView::setExpanded(FolderTreeItem *item, bool f)
 {
-	setExpanded(currentIndex(), f);
+	QModelIndex index = indexFromItem(item);
+	setExpanded(index, f);
 }
 
 void FolderTreeView::currentChanged(const QModelIndex &current, const QModelIndex &previous)

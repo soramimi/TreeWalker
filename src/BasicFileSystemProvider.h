@@ -2,17 +2,20 @@
 #define BASICFILESYSTEMPROVIDER_H
 
 #include "AbstractFileSystemProvider.h"
-
 #include <QDirIterator>
+#include <memory>
 
 class BasicFileSystemProvider : public AbstractFileSystemProvider {
 private:
-	QString dir;
-	QDirIterator iterator;
+	struct Data {
+		ItemIdList iidl;
+		QString dir;
+		QDir::Filters filters = QDir::AllEntries | QDir::Hidden | QDir::System | QDir::AllDirs | QDir::NoDotAndDotDot;
+	} d;
+	std::shared_ptr<QDirIterator> iterator;
 	void setFileInfo(FileInfo2 *fi, const QString &name, const QString &path) const;
 	static QString fixPath(QString path);
 public:
-//	BasicFileSystemProvider(QString const &dir);
 	BasicFileSystemProvider(ItemIdList const &iidl);
 	QString currentDir() const;
 	bool fetch();
@@ -22,6 +25,13 @@ public:
 	FileSystemProviderPtr create(ItemIdList const &iidl);
 	FileInfo2 firstFileInfo() const;
 	bool hasReadPermission() const;
+
+	std::shared_ptr<AbstractFileSystemProvider> dup(ItemIdList const &iidl)
+	{
+		std::shared_ptr<BasicFileSystemProvider> ret = std::make_shared<BasicFileSystemProvider>(iidl);
+		ret->d = d;
+		return ret;
+	}
 };
 
 

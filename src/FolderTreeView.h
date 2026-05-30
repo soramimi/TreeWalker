@@ -56,7 +56,6 @@ public:
 	void setData(int column, int role, QVariant const &data);
 	QVariant data(int column, int role) const;
 
-	void setIcon(int column, QIcon const &icon) {}
 	int childCount() const { return children_.size(); }
 
 	ItemIdList const &iidl() const
@@ -70,6 +69,10 @@ class FolderTreeView : public QTreeView {
 private:
 	struct Private;
 	Private *m;
+protected:
+	void beginResetModel();
+	void endResetModel();
+
 public:
 	explicit FolderTreeView(QWidget *parent = 0);
 	~FolderTreeView();
@@ -84,9 +87,6 @@ public:
 
 	FolderTreeItem *currentItem() const;
 	void setCurrentItem(FolderTreeItem *item);
-
-	void beginResetModel();
-	void endResetModel();
 
 	using QTreeView::isExpanded;
 	using QTreeView::setExpanded;

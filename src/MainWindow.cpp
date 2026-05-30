@@ -19,7 +19,6 @@
 #include <QStandardPaths>
 #include <QTableWidgetItem>
 #include <QTimer>
-// #include <FolderTreeItem>
 
 #ifdef Q_OS_WIN
 #include "WindowsFileSystemProvider.h"
@@ -220,7 +219,18 @@ void MainWindow::setTreeViewSubDirItemData(FolderTreeItem *item, FileInfo2 const
 	item->setData(0, NameRole, info.name);
 	item->setData(0, PathRole, path);
 	item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(iidl));
-	// item->setIcon(0, getIcon(info));
+}
+
+bool MainWindow::hasSubDir(AbstractFileSystemProvider *fs, ItemIdList const &iidl)
+{
+	auto fs2 = fs->dup(iidl);
+	while (fs2->fetch()) {
+		FileInfo2 info2 = fs2->fileInfo();
+		if (info2.isdir) {
+			return true;
+		}
+	}
+	return false;
 }
 
 void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent, TreeInfo *find)
@@ -243,8 +253,6 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 		}
 	}
 
-	ui->treeView->beginResetModel();
-
 	{ // remove placeholder
 		int i = parent->childCount();
 		while (i > 0) {
@@ -258,10 +266,19 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 		for (FileInfo2 const &info: dirs) {
 			auto item = new_FolderTreeItem();
 			setTreeViewSubDirItemData(item, info);
-			auto placeholder = new_FolderTreeItem();
-			placeholder->setText(0, info.path);
-			placeholder->setData(0, KindRole, (int)Kind::Placeholder);
-			item->addChild(placeholder);
+			if (0) {
+				auto placeholder = new_FolderTreeItem();
+				placeholder->setText(0, info.path);
+				placeholder->setData(0, KindRole, (int)Kind::Placeholder);
+				item->addChild(placeholder);
+			} else {
+				if (hasSubDir(fs, info.iidl)) {
+					auto placeholder = new_FolderTreeItem();
+					placeholder->setText(0, info.path);
+					placeholder->setData(0, KindRole, (int)Kind::Placeholder);
+					item->addChild(placeholder);
+				}
+			}
 			parent->addChild(item);
 			if (find) {
 #ifdef Q_OS_WIN
@@ -286,9 +303,8 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 #endif
 			}
 		}
+		ui->treeView->setExpanded(parent, true);
 	}
-
-	ui->treeView->endResetModel();
 }
 
 FolderTreeItem *MainWindow::makeTreeCompletely()
@@ -317,7 +333,6 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 
 	m->bookmarks_root_item = new_FolderTreeItem();
 	m->bookmarks_root_item->setText(0, tr("Bookmarks"));
-	m->bookmarks_root_item->setIcon(0, m->default_folder_icon);
 	m->bookmarks_root_item->setData(0, KindRole, (int)Kind::ChromeBookmark);
 	m->bookmarks_root_item->setData(0, PathRole, prefix_bookmark);
 #ifdef Q_OS_WIN
@@ -907,7 +922,7 @@ void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderT
 	m->thumbnail_loader.clearRequests();
 
 	bool ok = false;
-	if (loc.startsWith("bookmark:")) {
+	if (loc.startsWith(prefix_bookmark)) {
 		ok = true;
 	} else if (loc.startsWith("iidl:")) {
 		ok = true;
@@ -1083,11 +1098,9 @@ void MainWindow::makeBookmarkMap(QString const &path, QJsonValue v, int depth, F
 			m->bookmark_items[path].push_back(BookmarkInfo(name, childpath));
 			auto child = new_FolderTreeItem();
 			child->setText(0, name);
-			child->setIcon(0, m->default_folder_icon);
 			child->setData(0, KindRole, (int)Kind::ChromeBookmark);
 			child->setData(0, PathRole, childpath);
 			parent->addChild(child);
-			// ui->treeView->addChild(parent, child);
 			QJsonArray children = v2.toArray();
 			for (QJsonValue const &v4 : children) {
 				makeBookmarkMap(childpath, v4, depth + 1, child);
@@ -1212,14 +1225,12 @@ void MainWindow::on_action_view_thumbnails_triggered()
 void MainWindow::on_action_view_hide_item_triggered()
 {
 	QString path = currentPath();
-	// qDebug() << path;
 }
 
 void MainWindow::on_treeView_itemExpanded(FolderTreeItem *item)
 {
 	if (item) {
 		fetchSubFolders(item);
-		// ui->treeView->setExpanded(item, true);
 	}
 }
 

@@ -6,10 +6,12 @@
 
 
 
+
 BasicFileSystemProvider::BasicFileSystemProvider(ItemIdList const &iidl)
-	: dir(fixPath(iidl.path()))
-	, iterator(dir, QDir::AllEntries | QDir::Hidden | QDir::System | QDir::AllDirs | QDir::NoDotAndDotDot)
 {
+	d.iidl = iidl;
+	d.dir = fixPath(d.iidl.path());
+	iterator = std::make_shared<QDirIterator>(d.dir, d.filters);
 }
 
 QString BasicFileSystemProvider::fixPath(QString path)
@@ -23,13 +25,13 @@ QString BasicFileSystemProvider::fixPath(QString path)
 
 QString BasicFileSystemProvider::currentDir() const
 {
-	return dir;
+	return d.dir;
 }
 
 bool BasicFileSystemProvider::fetch()
 {
-	if (iterator.hasNext()) {
-		iterator.next();
+	if (iterator->hasNext()) {
+		iterator->next();
 		return true;
 	}
 	return false;
@@ -37,7 +39,7 @@ bool BasicFileSystemProvider::fetch()
 
 QString BasicFileSystemProvider::fileName() const
 {
-	return iterator.fileName();
+	return iterator->fileName();
 }
 
 void BasicFileSystemProvider::setFileInfo(FileInfo2 *fi, QString const &name, QString const &path) const
@@ -72,7 +74,7 @@ bool BasicFileSystemProvider::hasReadPermission() const
 FileInfo2 BasicFileSystemProvider::fileInfo() const
 {
 	FileInfo2 fi;
-	setFileInfo(&fi, iterator.fileName(), iterator.filePath());
+	setFileInfo(&fi, iterator->fileName(), iterator->filePath());
 	return fi;
 }
 
