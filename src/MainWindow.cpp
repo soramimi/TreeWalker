@@ -19,6 +19,7 @@
 #include <QStandardPaths>
 #include <QTableWidgetItem>
 #include <QTimer>
+#include "realpath.h"
 
 #ifdef Q_OS_WIN
 #include "WindowsFileSystemProvider.h"
@@ -107,6 +108,8 @@ MainWindow::MainWindow(QWidget *parent)
 {
 	ui->setupUi(this);
 
+	qApp->installEventFilter(this);
+	
 	m->status_label = new StatusLabel(this);
 	ui->statusBar->addWidget(m->status_label);
 
@@ -539,6 +542,19 @@ bool MainWindow::acceptKeyEvent(QKeyEvent *event)
 		return false;
 	}
 	return true;
+}
+
+bool MainWindow::eventFilter(QObject *watched, QEvent *event)
+{
+	if (event->type() == QEvent::KeyPress) {
+		QKeyEvent *ke = (QKeyEvent *)event;
+		if (ke->key() == '*') {
+			if (focusWidget() == ui->treeView) {
+				return true; // suppress tree expansion
+			}
+		}
+	}
+	return QMainWindow::eventFilter(watched, event);
 }
 
 void MainWindow::keyPressEvent(QKeyEvent *event)
@@ -1148,14 +1164,15 @@ void MainWindow::on_tableView_customContextMenuRequested(const QPoint &pos)
 void MainWindow::fetchBookmarks()
 {
 #ifdef Q_OS_MAC
-	QString path = "/Users/soramimi/Library/Application Support/Google/Chrome/Default/Bookmarks";
+	QString path = "~/Library/Application Support/Google/Chrome/Default/Bookmarks";
 #endif
 #ifdef Q_OS_WIN
 	QString datadir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
 	QString path = datadir / "Google/Chrome/User Data/Default/Bookmarks";
 #endif
 #ifdef Q_OS_LINUX
-	QString path = "/home/soramimi/.config/google-chrome/Default/Bookmarks";
+	QString path = "~/.config/google-chrome/Default/Bookmarks";
+	path = misc::realpath(path);
 #endif
 
 	while (m->bookmarks_root_item->childCount() > 0) {

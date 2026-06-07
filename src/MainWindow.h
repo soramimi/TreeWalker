@@ -145,11 +145,15 @@ private:
 	bool hasSubDir(AbstractFileSystemProvider *fs, const ItemIdList &iidl);
 protected:
 	bool acceptKeyEvent(QKeyEvent *event);
+	bool eventFilter(QObject *watched, QEvent *event);
 	void keyPressEvent(QKeyEvent *);
 private slots:
 	void thumbnailReady(std::shared_ptr<ThumbnailLoader::Entiry> entity);
 	void on_action_view_hide_item_triggered();
 	void on_treeView_itemExpanded(FolderTreeItem *item);
+	
+	// QObject interface
+public:
 };
 
 class VirtualFileSystem {

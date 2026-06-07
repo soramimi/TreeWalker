@@ -63,8 +63,25 @@ public:
 
 ApplicationGlobal *global;
 
+void logHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
+{
+	QString message = qFormatLogMessage(type, context, msg);
+	std::string s = message.toStdString();
+
+	if (1) {
+		fprintf(stderr, "%s\n", s.c_str());
+	}
+
+	// if (1) {
+	// 	logprint(LOG_DEFAULT, s);
+	// }
+}
+
 int main(int argc, char *argv[])
 {
+	putenv("QT_ASSUME_STDERR_HAS_CONSOLE=1");
+	qInstallMessageHandler(logHandler);
+
 	ApplicationGlobal g;
 	global = &g;
 
