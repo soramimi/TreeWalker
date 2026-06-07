@@ -22,7 +22,11 @@ ItemIdList::ItemIdList(QString const &path)
 	d.iidl = global->shapi->parseDisplayName(path2);
 	d.type = ItemIdList::Type::WIN_SHELL_ITEMIDLIST;
 #else
-	d.iidl = misc::realpath(path).toUtf8();
+	if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
+		d.iidl = path.toUtf8(); // realpathしない
+	} else {
+		d.iidl = misc::realpath(path).toUtf8();
+	}
 	d.type = ItemIdList::Type::PATH;
 #endif
 }

@@ -109,6 +109,7 @@ int main(int argc, char *argv[])
 	MainWindow w;
 	global->mainwindow = &w;
 	w.show();
+	w.reloadContents();
 
 	int r = a.exec();
 

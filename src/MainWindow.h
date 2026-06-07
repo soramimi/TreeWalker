@@ -74,12 +74,12 @@ private:
 	void setAddressBarVisible(bool visible);
 	void toggleBookbarkBarVisible();
 public:
+	void reloadContents();
 	static void sortFileInfoList(QList<FileInfo2> *list);
 	void setStatusBarText(const QString &text);
 	QList<FileInfo2> windowsMyComputerFiles();
 	QImage queryThumbnail(const QString &path);
 	void setFocusFolderTree();
-	void show();
 	FileItemModel *fileitemmodel();
 	QIcon getIcon(const FileInfo2 &info);
 private:

@@ -25,6 +25,7 @@
 #include "WindowsShellAPI.h"
 #endif
 
+static QString prefix_mycomputer = "//mycomputer//";
 static QString prefix_bookmark = "//bookmark//";
 
 QString dumpByteArray(QByteArray const &ba)
@@ -72,8 +73,8 @@ struct MainWindow::Private {
 	StatusLabel *status_label;
 	QTimer update_list_timer;
 	FileSystemProviderPtr fs_factory;
-#ifdef Q_OS_WIN
 	FolderTreeItem *my_computer_item;
+#ifdef Q_OS_WIN
 #else
 	FolderTreeItem *root_dir_item;
 #endif
@@ -150,25 +151,23 @@ FileItemModel *MainWindow::fileitemmodel()
 	return &m->file_item_model;
 }
 
-void MainWindow::show()
+void MainWindow::reloadContents()
 {
 	FolderTreeItem *rootitem = makeTreeCompletely();
-
+	
 	ui->treeView->setExpanded(rootitem, true);
 	ui->treeView->setFocus();
 	ui->treeView->setCurrentItem(rootitem);
-
+	
 	ui->tableView->setModel(fileitemmodel());
 	ui->thumbnailView->setModel(fileitemmodel());
-
+	
 	connect(&m->thumbnail_loader, &ThumbnailLoader::taskDone, this, &MainWindow::thumbnailReady);
 	m->thumbnail_loader.start();
-
+	
 	ui->stackedWidget_fileview->setCurrentWidget(ui->page_list);
-
+	
 	fetchBookmarks();
-
-	QMainWindow::show();
 }
 
 MainWindow::ViewMode MainWindow::viewmode() const
@@ -267,11 +266,13 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 			auto item = new_FolderTreeItem();
 			setTreeViewSubDirItemData(item, info);
 			if (0) {
+				// 全部の子にplaceholderを追加する版
 				auto placeholder = new_FolderTreeItem();
 				placeholder->setText(0, info.path);
 				placeholder->setData(0, KindRole, (int)Kind::Placeholder);
 				item->addChild(placeholder);
 			} else {
+				// サブディレクトリがあるものだけplaceholderを追加する版
 				if (hasSubDir(fs, info.iidl)) {
 					auto placeholder = new_FolderTreeItem();
 					placeholder->setText(0, info.path);
@@ -316,16 +317,18 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	auto rootitem = new_FolderTreeItem();
 	setTreeViewSubDirItemData(rootitem, info);
 
-#ifdef Q_OS_WIN
 	m->my_computer_item = new_FolderTreeItem();
 	m->my_computer_item->setText(0, tr("My Computer"));
 	m->my_computer_item->setData(0, KindRole, (int)Kind::Directory);
+#ifdef Q_OS_WIN
 	m->my_computer_item->setData(0, PathRole, "/");
 	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(QString("///")));
 	ui->treeView->addTopLevelItem(m->my_computer_item);
 	m->my_computer_item->addChild(rootitem);
 #else
-	ui->treeView->addTopLevelItem(rootitem);
+	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(prefix_mycomputer));
+	ui->treeView->addTopLevelItem(m->my_computer_item);
+	m->my_computer_item->addChild(rootitem);
 	m->root_dir_item = rootitem;
 #endif
 
@@ -338,7 +341,8 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 #ifdef Q_OS_WIN
 	m->my_computer_item->addChild(m->bookmarks_root_item);
 #else
-	ui->treeView->addTopLevelItem(m->bookmarks_root_item);
+	// ui->treeView->addTopLevelItem(m->bookmarks_root_item);
+	m->my_computer_item->addChild(m->bookmarks_root_item);
 #endif
 
 	return rootitem;
@@ -886,12 +890,17 @@ QString MainWindow::currentLocation()
 		loc = item->data(0, PathRole).toString();
 		if (loc.isEmpty()) {
 			ItemIdList iidl = item->data(0, IidlRole).value<ItemIdList>();
-			int n = iidl.size();
-			char *p = (char *)alloca(n * 2 + 1);
-			for (int i = 0; i < n; i++) {
-				sprintf(p + i * 2, "%02x", iidl.data()[i]);
+			if (iidl.type() == ItemIdList::Type::PATH) {
+				loc = iidl.path();
+			} else if (iidl.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST) {
+				int n = iidl.size();
+				char *p = (char *)alloca(n * 2 + 1);
+				*p = 0;
+				for (int i = 0; i < n; i++) {
+					sprintf(p + i * 2, "%02x", iidl.data()[i]);
+				}
+				loc = QString("iidl:") + p;
 			}
-			loc = QString("iidl:") + p;
 		}
 	}
 	return loc;
@@ -1094,7 +1103,11 @@ void MainWindow::makeBookmarkMap(QString const &path, QJsonValue v, int depth, F
 		if (v2.isArray()) {
 			QJsonValue v3 = o.value("name");
 			QString name = v3.toString();
-			QString childpath = path + name + " /";
+			QString childpath = path;
+			if (!path.endsWith('/')) {
+				childpath += '/';
+			}
+			childpath += name;
 			m->bookmark_items[path].push_back(BookmarkInfo(name, childpath));
 			auto child = new_FolderTreeItem();
 			child->setText(0, name);
