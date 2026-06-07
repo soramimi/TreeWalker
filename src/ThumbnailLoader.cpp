@@ -11,6 +11,82 @@
 #include <chrono>
 #include <unordered_map>
 #include <list>
+#include "misc.h"
+
+template <typename KEY, typename VALUE> class T_Cache {
+public:
+	struct CacheItem {
+		KEY key;
+		VALUE value;
+	};
+private:
+	std::list<CacheItem> items_;
+	std::unordered_map<KEY, typename std::list<CacheItem>::iterator> index_;
+
+	static constexpr size_t MAX_SIZE = 4096;
+	static constexpr size_t TRIM_TARGET = 4000;
+
+	void evict_expired(size_t target_count)
+	{
+		auto Erase = [&](auto it){
+			index_.erase(it->key);
+			items_.erase(it);
+		};
+		if (items_.size() > target_count) {
+			// evict oldest valid entries if still over target
+			size_t remove = items_.size() - target_count;
+			for (size_t i = 0; i < remove; i++) {
+				auto it = std::prev(items_.end());
+				Erase(it);
+			}
+		}
+	}
+public:
+	std::optional<VALUE> find(KEY const &name)
+	{
+		auto map_it = index_.find(name);
+		if (map_it != index_.end()) {
+			auto list_it = map_it->second;
+			// move to front (most recently used)
+			items_.splice(items_.begin(), items_, list_it);
+			// update iterator in map after splice
+			map_it->second = items_.begin();
+			return list_it->value;
+		}
+		return std::nullopt;
+	}
+	void insert(KEY const &name, VALUE const &value)
+	{
+		auto now = misc::get_tick_count();
+		auto SetItem = [&](CacheItem *item){
+			item->value = value;
+		};
+		auto map_it = index_.find(name);
+		if (map_it != index_.end()) {
+			// update existing entry and move to front
+			auto list_it = map_it->second;
+			SetItem(&*list_it);
+			items_.splice(items_.begin(), items_, list_it);
+			map_it->second = items_.begin();
+		} else {
+			// evict if at capacity
+			if (items_.size() >= MAX_SIZE) {
+				evict_expired(TRIM_TARGET);
+			}
+			// insert new entry at front
+			items_.emplace_front();
+			auto list_it = items_.begin();
+			list_it->key = name;
+			SetItem(&*list_it);
+			index_[name] = list_it;
+		}
+	}
+	void clear()
+	{
+		items_.clear();
+		index_.clear();
+	}
+};
 
 struct ThumbnailLoader::Private {
 	std::mutex mutex;
@@ -18,8 +94,7 @@ struct ThumbnailLoader::Private {
 	std::vector<std::thread> threads;
 	bool interrupted = false;
 	std::deque<std::shared_ptr<ThumbnailLoader::Entiry>> submission_queue;
-	std::vector<std::shared_ptr<ThumbnailLoader::Entiry>> completion_vec;
-	std::unordered_map<QString, std::shared_ptr<ThumbnailLoader::Entiry>> completion_map;
+	T_Cache<QString, std::shared_ptr<ThumbnailLoader::Entiry>> completion_map;
 };
 
 ThumbnailLoader::ThumbnailLoader()
@@ -94,25 +169,8 @@ void ThumbnailLoader::start()
 						entity->last_access = QDateTime::currentDateTime();
 
 						std::lock_guard<std::mutex> lock(m->mutex);
-
-						m->completion_vec.push_back(entity);
-						m->completion_map[entity->path] = entity;
+						m->completion_map.insert(entity->path, entity);
 						emit taskDone(entity);
-
-						if (m->completion_vec.size() > max_cache_size) {
-							std::sort(m->completion_vec.begin(), m->completion_vec.end(), [](std::shared_ptr<Entiry> const &l, std::shared_ptr<Entiry> const &r){
-								return r->last_access < l->last_access; // sort by last access time, most recently used first
-							});
-							// evict 10% of the cache when it exceeds the limit
-							for (size_t i = 0; i < max_cache_size / 10; i++) {
-								auto item = m->completion_vec.back();
-								m->completion_vec.pop_back();
-								auto it = m->completion_map.find(item->path);
-								if (it != m->completion_map.end()) {
-									m->completion_map.erase(it);
-								}
-							}
-						}
 					}
 				}
 			}
@@ -143,11 +201,10 @@ std::shared_ptr<ThumbnailLoader::Entiry> ThumbnailLoader::query(QString const &p
 
 	std::lock_guard<std::mutex> lock(m->mutex);
 	{
-		auto it = m->completion_map.find(path);
-		if (it != m->completion_map.end()) {
-			auto ret = it->second;
-			ret->last_access = QDateTime::currentDateTime();
-			return ret; // already completed
+		auto opt = m->completion_map.find(path);
+		if (opt) {
+			(*opt)->last_access = QDateTime::currentDateTime();
+			return *opt; // already completed
 		}
 	}
 	{
@@ -172,7 +229,6 @@ void ThumbnailLoader::clearCache()
 {
 	std::lock_guard<std::mutex> lock(m->mutex);
 	m->submission_queue.clear();
-	m->completion_vec.clear();
 	m->completion_map.clear();
 }
 
