@@ -75,10 +75,10 @@ struct MainWindow::Private {
 	QTimer update_list_timer;
 	FileSystemProviderPtr fs_factory;
 	FolderTreeItem *my_computer_item;
-#ifdef Q_OS_WIN
-#else
-	FolderTreeItem *root_dir_item;
-#endif
+	FolderTreeItem *root_dir_item; // for POSIX=/, for Windows=Desktop
+// #ifdef Q_OS_WIN
+// #else
+// #endif
 	FolderTreeItem *bookmarks_root_item;
 
 	QFileIconProvider icon_provider;
@@ -145,6 +145,12 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
+	for (std::shared_ptr<FetchLocationThread> &thread : m->fetch_location_threads) {
+		if (thread->isRunning()) {
+			thread->requestInterruption();
+			thread->wait();
+		}
+	}
 	delete m;
 	delete ui;
 }
@@ -265,16 +271,16 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 
 	if (!dirs.isEmpty()) {
 		sortFileInfoList(&dirs);
+
 		for (FileInfo2 const &info: dirs) {
 			auto item = new_FolderTreeItem();
 			setTreeViewSubDirItemData(item, info);
-			if (0) {
-				// 全部の子にplaceholderを追加する版
-				auto placeholder = new_FolderTreeItem();
-				placeholder->setText(0, info.path);
-				placeholder->setData(0, KindRole, (int)Kind::Placeholder);
-				item->addChild(placeholder);
-			} else {
+#ifdef Q_OS_WIN
+			const bool check_subdir = false;
+#else
+			const bool check_subdir = true;
+#endif
+			if (check_subdir) {
 				// サブディレクトリがあるものだけplaceholderを追加する版
 				if (hasSubDir(fs, info.iidl)) {
 					auto placeholder = new_FolderTreeItem();
@@ -282,6 +288,12 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 					placeholder->setData(0, KindRole, (int)Kind::Placeholder);
 					item->addChild(placeholder);
 				}
+			} else {
+				// 全部の子にplaceholderを追加する版
+				auto placeholder = new_FolderTreeItem();
+				placeholder->setText(0, info.path);
+				placeholder->setData(0, KindRole, (int)Kind::Placeholder);
+				item->addChild(placeholder);
 			}
 			parent->addChild(item);
 			if (find) {
@@ -307,7 +319,10 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 #endif
 			}
 		}
+		QElapsedTimer t;
+		t.start();
 		ui->treeView->setExpanded(parent, true);
+		qDebug() << t.elapsed();
 	}
 }
 
@@ -317,38 +332,29 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 
 	auto fs = m->fs_factory->create(m->fs_factory->firstFileInfo().iidl);
 	FileInfo2 info = fs->firstFileInfo();
-	auto rootitem = new_FolderTreeItem();
-	setTreeViewSubDirItemData(rootitem, info);
+	m->root_dir_item = new_FolderTreeItem();
+	setTreeViewSubDirItemData(m->root_dir_item, info);
 
 	m->my_computer_item = new_FolderTreeItem();
 	m->my_computer_item->setText(0, tr("My Computer"));
 	m->my_computer_item->setData(0, KindRole, (int)Kind::Directory);
-#ifdef Q_OS_WIN
-	m->my_computer_item->setData(0, PathRole, "/");
-	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(QString("///")));
 	ui->treeView->addTopLevelItem(m->my_computer_item);
-	m->my_computer_item->addChild(rootitem);
-#else
+	m->my_computer_item->addChild(m->root_dir_item);
 	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(prefix_mycomputer));
-	ui->treeView->addTopLevelItem(m->my_computer_item);
-	m->my_computer_item->addChild(rootitem);
-	m->root_dir_item = rootitem;
-#endif
+// #ifdef Q_OS_WIN
+// 	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(QString("///")));
+// #else
+// #endif
 
-	makeTree(fs.get(), rootitem);
+	makeTree(fs.get(), m->root_dir_item);
 
 	m->bookmarks_root_item = new_FolderTreeItem();
 	m->bookmarks_root_item->setText(0, tr("Bookmarks"));
 	m->bookmarks_root_item->setData(0, KindRole, (int)Kind::ChromeBookmark);
 	m->bookmarks_root_item->setData(0, PathRole, prefix_bookmark);
-#ifdef Q_OS_WIN
 	m->my_computer_item->addChild(m->bookmarks_root_item);
-#else
-	// ui->treeView->addTopLevelItem(m->bookmarks_root_item);
-	m->my_computer_item->addChild(m->bookmarks_root_item);
-#endif
 
-	return rootitem;
+	return m->root_dir_item;
 }
 
 FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList const &iidl)
@@ -930,8 +936,12 @@ QString MainWindow::currentFilePath()
 
 void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderTreeItem *previous)
 {
+	qDebug() << Q_FUNC_INFO;
+
 	(void)current;
 	(void)previous;
+
+	ui->treeView->scrollTo(ui->treeView->indexFromItem(current), QTreeView::EnsureVisible);
 
 	{
 		auto item = ui->treeView->currentItem();
@@ -1065,7 +1075,12 @@ void MainWindow::setCurrentIIDL(ItemIdList iidl)
 {
 #ifdef Q_OS_WIN
 	if (iidl.type() == ItemIdList::Type::PATH) {
-		iidl = global->shapi->parseDisplayName(iidl.path());
+		QString path = iidl.path();
+		if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
+			// nop
+		} else {
+			iidl = global->shapi->parseDisplayName(path);
+		}
 	}
 #endif
 

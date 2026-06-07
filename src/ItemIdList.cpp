@@ -17,10 +17,15 @@ ItemIdList::ItemIdList(const QByteArray &iidl)
 ItemIdList::ItemIdList(QString const &path)
 {
 #ifdef Q_OS_WIN
-	QString path2 = path;
-	path2.replace('/', '\\');
-	d.iidl = global->shapi->parseDisplayName(path2);
-	d.type = ItemIdList::Type::WIN_SHELL_ITEMIDLIST;
+	if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
+		d.iidl = path.toUtf8();
+		d.type = ItemIdList::Type::PATH;
+	} else {
+		QString path2 = path;
+		path2.replace('/', '\\');
+		d.iidl = global->shapi->parseDisplayName(path2);
+		d.type = ItemIdList::Type::WIN_SHELL_ITEMIDLIST;
+	}
 #else
 	if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
 		d.iidl = path.toUtf8(); // realpathしない

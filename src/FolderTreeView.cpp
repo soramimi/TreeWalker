@@ -173,6 +173,9 @@ public:
 	}
 	QVariant data(const QModelIndex &index, int role) const
 	{
+		if (role == IidlRole) {
+			qDebug();
+		}
 		if (auto item = find(index)) {
 			return item->data(0, role);
 		}
@@ -398,7 +401,6 @@ void FolderTreeView::setExpanded(FolderTreeItem *item, bool f)
 
 void FolderTreeView::currentChanged(const QModelIndex &current, const QModelIndex &previous)
 {
-	scrollTo(current, EnsureVisible);
 	FolderTreeItem *current_item = itemFromIndex(current);
 	FolderTreeItem *previous_item = itemFromIndex(previous);
 	setCurrentIndex(current);

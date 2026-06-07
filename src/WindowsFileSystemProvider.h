@@ -53,6 +53,12 @@ public:
 		return FileSystemProviderPtr(new WindowsFileSystemProvider(iidl));
 	}
 
+	virtual std::shared_ptr<AbstractFileSystemProvider> dup(ItemIdList const &iidl)
+	{
+		std::shared_ptr<WindowsFileSystemProvider> ret = std::make_shared<WindowsFileSystemProvider>(iidl);
+		return ret;
+	}
+
 	static bool isPhysicalFilesystemFolder(void const *iidl);
 	static bool isPhysicalFilesystemFolder(const ItemIdList &iidl);
 	static QImage getStockFolderIcon();
