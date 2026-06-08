@@ -66,10 +66,15 @@ ApplicationGlobal *global;
 void logHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
 	QString message = qFormatLogMessage(type, context, msg);
-	std::string s = message.toStdString();
 
 	if (1) {
+#ifdef Q_OS_WIN
+		fwprintf(stderr, L"%s\n", (wchar_t *)message.utf16());
+#else
+		std::string s = message.toStdString();
 		fprintf(stderr, "%s\n", s.c_str());
+#endif
+		fflush(stderr);
 	}
 
 	// if (1) {
@@ -80,7 +85,7 @@ void logHandler(QtMsgType type, const QMessageLogContext &context, const QString
 int main(int argc, char *argv[])
 {
 	putenv("QT_ASSUME_STDERR_HAS_CONSOLE=1");
-	qInstallMessageHandler(logHandler);
+	// qInstallMessageHandler(logHandler);
 
 	ApplicationGlobal g;
 	global = &g;

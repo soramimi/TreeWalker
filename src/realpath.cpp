@@ -6,6 +6,7 @@
 #include <windows.h>
 #include <KnownFolders.h>
 #include <ShlObj.h>
+#include <QFileInfo>
 #include "wstring.h"
 #else
 #include <limits.h>
@@ -73,6 +74,6 @@ std::string misc::realpath(std::string const &path)
 
 QString misc::realpath(QString const &path)
 {
-	std::string s = realpath(path.toUtf8().constData());
-	return QString::fromUtf8(s.c_str());
+	QFileInfo info(path);
+	return info.absoluteFilePath();
 }
