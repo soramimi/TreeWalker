@@ -26,9 +26,6 @@
 #include "WindowsShellAPI.h"
 #endif
 
-QString prefix_mycomputer = "//mycomputer//";
-QString prefix_bookmark = "//bookmark//";
-
 QString dumpByteArray(QByteArray const &ba)
 {
 	QString text;
@@ -552,9 +549,16 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
 	if (event->type() == QEvent::KeyPress) {
 		QKeyEvent *ke = (QKeyEvent *)event;
-		if (ke->key() == '*') {
-			if (focusWidget() == ui->treeView) {
+		if (focusWidget() == ui->treeView) {
+			if (ke->key() == '*') {
 				return true; // suppress tree expansion
+			}
+			if (ke->key() == Qt::Key_Left || ke->key() == Qt::Key_Enter || ke->key() == Qt::Key_Return) {
+				if (ui->treeView->currentItem() == m->my_computer_item) {
+					if (ui->treeView->isExpanded(m->my_computer_item)) {
+						return true; // suppress tree collapse
+					}
+				}
 			}
 		}
 	}
@@ -886,6 +890,8 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 	m->file_item_model.setKind(loc.kind);
 	ui->tableView->setKind(loc.kind);
 	ui->thumbnailView->setKind(loc.kind);
+	ui->tableView->setLocation(loc.path);
+	ui->thumbnailView->setLocation(loc.path);
 
 	int n = model->rowCount();
 	setStatusBarText(QString("%1 items").arg(n));
@@ -1274,6 +1280,13 @@ void MainWindow::on_treeView_itemExpanded(FolderTreeItem *item)
 {
 	if (item) {
 		fetchSubFolders(item);
+	}
+}
+
+void MainWindow::on_treeView_collapsed(const QModelIndex &index)
+{
+	if (ui->treeView->itemFromIndex(index) == m->my_computer_item) {
+		ui->treeView->setExpanded(m->my_computer_item, true); // 閉じさせない
 	}
 }
 

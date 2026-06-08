@@ -21,6 +21,8 @@ public:
 	FileItemModel *model();
 	FileItemModel const *model() const;
 
+	void setLocation(QString const &loc);
+	
 	void setKind(Kind kind);
 	Kind kind() const;
 

@@ -153,6 +153,8 @@ private slots:
 	void on_treeView_itemExpanded(FolderTreeItem *item);
 	
 	// QObject interface
+	void on_treeView_collapsed(const QModelIndex &index);
+	
 public:
 };
 

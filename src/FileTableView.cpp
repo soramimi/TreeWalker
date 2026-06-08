@@ -59,6 +59,7 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 class FileTableItemDelegate : public QStyledItemDelegate {
 public:
 	Kind kind_ = Kind::File;
+	QString location_;
 
 	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
 	{
@@ -102,10 +103,19 @@ public:
 			if (col == 1 && kind_ != Kind::ChromeBookmark) {
 				o.displayAlignment |= Qt::AlignRight;
 			}
-			bool strong_suffix = global->appsettings.strongly_draw_file_suffix && (col == 0);
+			bool strong_suffix = false;
+			if (location_.startsWith(prefix_bookmark)) {
+				// pass
+			} else {
+				strong_suffix = global->appsettings.strongly_draw_file_suffix && (col == 0);
+			}
 			drawItemViewText(strong_suffix, w->style(), painter, &o, true);
 #endif
 		}
+	}
+	void setLocation(const QString &loc)
+	{
+		location_ = loc;
 	}
 };
 
@@ -139,6 +149,11 @@ FileItemModel *FileTableView::model()
 const FileItemModel *FileTableView::model() const
 {
 	return const_cast<FileTableView *>(this)->model();
+}
+
+void FileTableView::setLocation(const QString &loc)
+{
+	m->item_delegate.setLocation(loc);
 }
 
 void FileTableView::setKind(Kind kind)

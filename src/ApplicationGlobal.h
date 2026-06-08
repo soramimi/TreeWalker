@@ -9,6 +9,9 @@
 class QApplication;
 class MainWindow;
 
+static inline const QString prefix_mycomputer = "//mycomputer//";
+static inline const QString prefix_bookmark = "//bookmark//";
+
 #ifdef Q_OS_WIN
 class WindowsShellAPI;
 #endif

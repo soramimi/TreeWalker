@@ -20,6 +20,7 @@ public:
 class ThumbnailViewDelegate : public QStyledItemDelegate {
 public:
 	Kind kind_ = Kind::File;
+	QString location;
 	ThumbnailViewDelegate(QWidget *parent = nullptr)
 		: QStyledItemDelegate(parent)
 	{
@@ -28,6 +29,7 @@ public:
 	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
 	{
 		ThumbnailView *widget = qobject_cast<ThumbnailView *>(parent());
+		QStyle *s = qApp->style();
 
 		QStyleOptionViewItem o1;
 		initStyleOption(&o1, index);
@@ -83,10 +85,38 @@ public:
 
 		QTextOption textopt;
 		textopt.setAlignment((Qt::Alignment)Qt::AlignCenter);
-		QString text = index.data(Qt::DisplayRole).toString();
+		QString name = index.data(Qt::DisplayRole).toString();
+		QString suffix;
 		QRect r(x, y + h, w, o2.rect.height() - h - 4);
-		painter->drawText(r, text, textopt);
+
+		// wip: bold rendering of file extensions
+		
+		bool strong_suffix = false;
+		if (strong_suffix) {
+			int i = name.lastIndexOf('.');
+			if (i > 0) {
+				suffix = name.mid(i + 1);
+				name = name.left(i + 1);
+			}
+		}
+		int flags = Qt::TextWordWrap;
+		bool enabled = (o2.state & QStyle::State_Enabled);
+		// QRect rName = painter->fontMetrics().boundingRect(o2.rect, flags, name);
+		QRect rName = o2.rect;
+		painter->drawText(r, name, textopt);
+		// s->drawItemText(painter, rName, flags, o2.palette, enabled, name, QPalette::NoRole);
+
+		if (0 && !suffix.isEmpty()) {
+			painter->save();
+			QFont font = o2.font;
+			font.setBold(true);
+			painter->setFont(font);
+			QRect rSuffix = painter->fontMetrics().boundingRect(o2.rect, flags, suffix).translated(rName.width(), 0);
+			s->drawItemText(painter, rSuffix, flags, o2.palette, enabled, suffix, QPalette::NoRole);
+			painter->restore();
+		}
 	}
+	void setLocation(const QString &loc);
 };
 
 
@@ -173,6 +203,11 @@ void ThumbnailView::selectRow(int row)
 	}
 }
 
+void ThumbnailView::setLocation(const QString &path)
+{
+	m->item_delegate.setLocation(path);	
+}
+
 QImage ThumbnailView::queryThubmanil(QString const &text)
 {
 	return mainwindow()->queryThumbnail(text);
@@ -205,3 +240,8 @@ QVariant ThumbnailListModel::data(const QModelIndex &index, int role) const
 
 }
 #endif
+
+void ThumbnailViewDelegate::setLocation(const QString &loc)
+{
+	location = loc;
+}
