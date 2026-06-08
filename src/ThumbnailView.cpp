@@ -4,6 +4,7 @@
 #include <QApplication>
 #include <QPainter>
 #include <QStyledItemDelegate>
+#include <QTextDocument>
 #include "darktheme/MyCommonStyle.h"
 
 #if 0
@@ -84,14 +85,13 @@ public:
 		icon.paint(painter, x, y, w, h);
 
 		QTextOption textopt;
-		textopt.setAlignment((Qt::Alignment)Qt::AlignCenter);
+		textopt.setAlignment((Qt::Alignment)(Qt::AlignCenter | Qt::AlignBottom));
 		QString name = index.data(Qt::DisplayRole).toString();
 		QString suffix;
-		QRect r(x, y + h, w, o2.rect.height() - h - 4);
 
 		// wip: bold rendering of file extensions
 		
-		bool strong_suffix = false;
+		bool strong_suffix = true;
 		if (strong_suffix) {
 			int i = name.lastIndexOf('.');
 			if (i > 0) {
@@ -99,20 +99,24 @@ public:
 				name = name.left(i + 1);
 			}
 		}
-		int flags = Qt::TextWordWrap;
-		bool enabled = (o2.state & QStyle::State_Enabled);
-		// QRect rName = painter->fontMetrics().boundingRect(o2.rect, flags, name);
-		QRect rName = o2.rect;
-		painter->drawText(r, name, textopt);
-		// s->drawItemText(painter, rName, flags, o2.palette, enabled, name, QPalette::NoRole);
 
-		if (0 && !suffix.isEmpty()) {
+		{
+			QTextDocument doc;
+			QString html = "<center>";
+			html += name.toHtmlEscaped();
+			if (strong_suffix && !suffix.isEmpty()) {
+				html += "<b>" + suffix.toHtmlEscaped() + "</b>";
+			}
+			html += "</center>";
+			doc.setHtml(html);
+			doc.setDefaultFont(o2.font);
+			doc.setTextWidth(o2.rect.width());
+			int h = doc.size().height();
 			painter->save();
-			QFont font = o2.font;
-			font.setBold(true);
-			painter->setFont(font);
-			QRect rSuffix = painter->fontMetrics().boundingRect(o2.rect, flags, suffix).translated(rName.width(), 0);
-			s->drawItemText(painter, rSuffix, flags, o2.palette, enabled, suffix, QPalette::NoRole);
+			QRect r(o2.rect.x(), o2.rect.y() + o2.rect.height() - h, o2.rect.width(), h);
+			painter->fillRect(r, QColor(255, 255, 255, 128));
+			painter->translate(r.x(), r.y());
+			doc.drawContents(painter);
 			painter->restore();
 		}
 	}
