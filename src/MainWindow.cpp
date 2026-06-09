@@ -22,6 +22,7 @@
 #include "realpath.h"
 
 #ifdef Q_OS_WIN
+#include "NetworkDiscoveryThread.h"
 #include "WindowsFileSystemProvider.h"
 #include "WindowsShellAPI.h"
 #endif
@@ -94,11 +95,20 @@ struct MainWindow::Private {
 	std::map<QString, QIcon> icon_cache;
 
 	std::set<ItemIdList> iidl_hide_set;
+	NetworkDiscoveryThread network_discovery_thread;
 };
 
-QString getDisplayName(FileInfo2 const &info)
+static QString getDisplayName(FileInfo2 const &info)
 {
 	return info.name;
+}
+
+void MainWindow::addPlaceholder(FolderTreeItem *item)
+{
+	auto placeholder = new_FolderTreeItem();
+	placeholder->setData(0, KindRole, (int)Kind::Placeholder);
+	ui->treeView->setExpanded(item, false);
+	item->addChild(placeholder);
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -136,6 +146,18 @@ MainWindow::MainWindow(QWidget *parent)
 		openTableItem(index);
 	});
 
+	connect(&m->network_discovery_thread, &NetworkDiscoveryThread::filesChanged, [&](){
+		auto item = ui->treeView->itemFromIidl(FileItem::getNetwork().idlist());
+		if (item) {
+			addPlaceholder(item);
+			if (item == ui->treeView->currentItem()) {
+				fetchSubFolders(item);
+			}
+		}
+	});
+
+	m->network_discovery_thread.start();
+
 #ifdef Q_OS_WIN
 	m->fs_factory = FileSystemProviderPtr(new WindowsFileSystemProvider());
 #else
@@ -151,6 +173,7 @@ MainWindow::~MainWindow()
 			thread->wait();
 		}
 	}
+	m->network_discovery_thread.detach();
 	delete m;
 	delete ui;
 }
@@ -258,7 +281,22 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 {
 	clearIconCache();
 
-	QList<FileInfo2> dirs;
+	std::vector<FileInfo2> dirs;
+
+	if (WindowsFileSystemProvider *wfs = dynamic_cast<WindowsFileSystemProvider *>(fs)) {
+		if (wfs->iidl() == FileItem::getNetwork().idlist()) {
+			std::vector<FileInfo2> dirs2 = m->network_discovery_thread.files();
+			for (FileInfo2 const &info : dirs2) {
+				if (info.isdir) {
+					if (info.name == "." || info.name == "..") {
+						continue;
+					}
+					dirs.push_back(info);;
+				}
+			}
+			goto happy;
+		}
+	}
 
 	while (fs->fetch()) {
 		FileInfo2 info = fs->fileInfo();
@@ -274,6 +312,8 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 		}
 	}
 
+happy:;
+
 	{ // remove placeholder
 		int i = parent->childCount();
 		while (i > 0) {
@@ -282,7 +322,9 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 		}
 	}
 
-	if (!dirs.isEmpty()) {
+	if (dirs.empty()) {
+		// addPlaceholder(parent);
+	} else {
 		sortFileInfoList(&dirs);
 
 		for (FileInfo2 const &info: dirs) {
@@ -298,18 +340,13 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 #endif
 			if (check_subdir) {
 				// サブディレクトリがあるものだけplaceholderを追加する版
+				// Windowsでは遅すぎて使い物にならない
 				if (hasSubDir(fs, info.iidl)) {
-					auto placeholder = new_FolderTreeItem();
-					placeholder->setText(0, info.path);
-					placeholder->setData(0, KindRole, (int)Kind::Placeholder);
-					item->addChild(placeholder);
+					addPlaceholder(item);
 				}
 			} else {
 				// 全部の子にplaceholderを追加する版
-				auto placeholder = new_FolderTreeItem();
-				placeholder->setText(0, info.path);
-				placeholder->setData(0, KindRole, (int)Kind::Placeholder);
-				item->addChild(placeholder);
+				addPlaceholder(item);
 			}
 			parent->addChild(item);
 			if (find) {
@@ -392,18 +429,29 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	return m->root_dir_item;
 }
 
-FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList const &iidl)
+FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList iidl)
 {
 	FileSystemProviderPtr fs;
 
-#ifdef _WIN32
+#ifdef Q_OS_WIN
+	if (iidl.type() == ItemIdList::Type::PATH) {
+		QString path = iidl.path();
+		if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
+			if (path.startsWith(prefix_mycomputer)) {
+				iidl = {m->my_computer_item->iidl()};
+				return std::make_shared<BasicFileSystemProvider>(ItemIdList{});
+			} else if (path.startsWith(prefix_iidl)) {
+				iidl = {QByteArray::fromHex(path.mid(prefix_iidl.size()).toUtf8())};
+			}
+		}
+	}
 	if (WindowsFileSystemProvider::isPhysicalFilesystemFolder(iidl)) {
 		if (iidl.size() >= 2) {
 			QString path;
 			if (iidl[0] == '/' && iidl[1] == '/') {
 				path = QString::fromUtf8(iidl.data() + 2, iidl.size() - 2);
-			} else if (iidl[0] == 0xff && iidl[1] == 0xff) {
-				path = global->shapi->pathFromList((ITEMIDLIST *)(iidl.data() + 2));
+			// } else if (iidl[0] == 0xff && iidl[1] == 0xff) {
+			// 	path = global->shapi->pathFromList((ITEMIDLIST *)(iidl.data() + 2));
 			} else {
 				path = global->shapi->pathFromList((ITEMIDLIST *)iidl.data());
 			}
@@ -782,7 +830,7 @@ QString MainWindow::modifiedText(FileInfo2 const &info)
 	return QString();
 }
 
-void MainWindow::sortFileInfoList(QList<FileInfo2> *list)
+void MainWindow::sortFileInfoList(std::vector<FileInfo2> *list)
 {
 	std::sort(list->begin(), list->end(), [](FileInfo2 const &l, FileInfo2 const &r){
 		return [](FileInfo2 const &l, FileInfo2 const &r){
@@ -1259,9 +1307,9 @@ void MainWindow::fetchBookmarks()
 	ui->treeView->setExpanded(m->bookmarks_root_item, true);
 }
 
-QList<FileInfo2> MainWindow::windowsMyComputerFiles()
+std::vector<FileInfo2> MainWindow::windowsMyComputerFiles()
 {
-	QList<FileInfo2> files;
+	std::vector<FileInfo2> files;
 #ifdef Q_OS_WIN
 	auto fs = FileSystemProviderPtr(new WindowsFileSystemProvider());
 	auto fileitor = fs.get();

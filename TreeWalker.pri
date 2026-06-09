@@ -16,6 +16,7 @@ SOURCES += \
 	$$PWD/src/FolderTreeView.cpp \
 	$$PWD/src/ItemIdList.cpp \
 	$$PWD/src/MyListWidget.cpp \
+	$$PWD/src/NetworkDiscoveryThread.cpp \
 	$$PWD/src/ThumbnailLoader.cpp \
 	$$PWD/src/ThumbnailView.cpp \
 	$$PWD/src/darktheme/DarkStyle.cpp \
@@ -56,6 +57,7 @@ HEADERS += \
 	$$PWD/src/FolderTreeView.h \
 	$$PWD/src/ItemIdList.h \
 	$$PWD/src/MyListWidget.h \
+	$$PWD/src/NetworkDiscoveryThread.h \
 	$$PWD/src/ThumbnailLoader.h \
 	$$PWD/src/ThumbnailView.h \
 	$$PWD/src/darktheme/DarkStyle.h \

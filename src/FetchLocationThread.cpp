@@ -26,7 +26,7 @@ void FetchLocationThread::run()
 					continue;
 				}
 			}
-			data.files.append(info);
+			data.files.push_back(info);
 		}
 	}
 	MainWindow::sortFileInfoList(&data.files);

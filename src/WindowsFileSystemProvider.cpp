@@ -148,10 +148,25 @@ FileItem FileItem::fromITEMIDLIST(ItemIdList const &idl)
 {
 	Data *p = new Data;
 	if (!idl.empty()) {
+		if (idl.d.type == ItemIdList::Type::PATH) {
+			QString path = idl.path();
+			if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
+				if (path.startsWith(prefix_iidl)) {
+					QByteArray ba = QByteArray::fromHex(path.mid(prefix_iidl.size()).toLatin1());
+					p->idlist = ItemIdList(ba);
+					p->shfolder = shapi()->getShellFolder(p->idlist.d.iidl);
+					return {p};
+				} else if (path.startsWith(prefix_mycomputer)) {
+				}
+				return {p};
+			}
+			p->idlist = ItemIdList(path);
+			return {p};
+		}
 		p->idlist = WindowsShellAPI::getByteArrayFromITEMIDLIST((ITEMIDLIST const *)idl.data());
 		p->shfolder = shapi()->getShellFolder(p->idlist.d.iidl);
 	}
-	return FileItem(p);
+	return {p};
 }
 
 // WindowsFileSystemProvider
@@ -182,6 +197,11 @@ WindowsFileSystemProvider::WindowsFileSystemProvider(ItemIdList const &iidl)
 WindowsFileSystemProvider::~WindowsFileSystemProvider()
 {
 	delete m;
+}
+
+ItemIdList WindowsFileSystemProvider::iidl() const
+{
+	return m->fileitem.idlist();
 }
 
 void WindowsFileSystemProvider::updateImageList()

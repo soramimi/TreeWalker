@@ -39,6 +39,7 @@ public:
 	WindowsFileSystemProvider(QString const &dir = QString());
 	WindowsFileSystemProvider(const ItemIdList &iidl);
 	~WindowsFileSystemProvider();
+	ItemIdList iidl() const;
 	QString currentDir() const;
 	bool fetch();
 	QString fileName() const;

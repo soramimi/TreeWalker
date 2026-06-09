@@ -30,7 +30,7 @@ struct LocationData {
 	Kind kind;
 	ItemIdList iidl;
 	QString path;
-	QList<FileInfo2> files;
+	std::vector<FileInfo2> files;
 	bool isDir() const
 	{
 		return kind == Kind::Directory || kind == Kind::SubDirectory || kind == Kind::NotPermittedDirectory;
@@ -75,9 +75,9 @@ private:
 	void toggleBookbarkBarVisible();
 public:
 	void reloadContents();
-	static void sortFileInfoList(QList<FileInfo2> *list);
+        static void sortFileInfoList(std::vector<FileInfo2> *list);
 	void setStatusBarText(const QString &text);
-	QList<FileInfo2> windowsMyComputerFiles();
+	std::vector<FileInfo2> windowsMyComputerFiles();
 	QImage queryThumbnail(const QString &path);
 	void setFocusFolderTree();
 	FileItemModel *fileitemmodel();
@@ -138,11 +138,12 @@ private:
 	QString currentPath() const;
 	ItemIdList currentIIDL() const;
 	void setCurrentDir(const QString &dir);
-	FileSystemProviderPtr newFileSystemPtr(const ItemIdList &iidl);
+	FileSystemProviderPtr newFileSystemPtr(ItemIdList iidl);
 	void toggleTreeItemExpansion();
 	FolderTreeItem *makeTreeCompletely();
 	void setCurrentIIDL(ItemIdList iidl);
 	bool hasSubDir(AbstractFileSystemProvider *fs, const ItemIdList &iidl);
+	void addPlaceholder(FolderTreeItem *item);
 protected:
 	bool acceptKeyEvent(QKeyEvent *event);
 	bool eventFilter(QObject *watched, QEvent *event);
