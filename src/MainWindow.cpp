@@ -72,6 +72,7 @@ struct MainWindow::Private {
 	QTimer update_list_timer;
 	FileSystemProviderPtr fs_factory;
 	FolderTreeItem *my_computer_item;
+	FolderTreeItem *drive_root;
 	FolderTreeItem *root_dir_item; // for POSIX=/, for Windows=Desktop
 // #ifdef Q_OS_WIN
 // #else
@@ -160,11 +161,7 @@ FileItemModel *MainWindow::fileitemmodel()
 void MainWindow::reloadContents()
 {
 	FolderTreeItem *rootitem = makeTreeCompletely();
-	
-	ui->treeView->setExpanded(rootitem, true);
-	ui->treeView->setFocus();
-	ui->treeView->setCurrentItem(rootitem);
-	
+
 	ui->tableView->setModel(fileitemmodel());
 	ui->thumbnailView->setModel(fileitemmodel());
 	
@@ -174,6 +171,10 @@ void MainWindow::reloadContents()
 	ui->stackedWidget_fileview->setCurrentWidget(ui->page_list);
 	
 	fetchBookmarks();
+
+	ui->treeView->setFocus();
+	ui->treeView->setExpanded(m->drive_root, true);
+	ui->treeView->setCurrentItem(m->drive_root);
 }
 
 MainWindow::ViewMode MainWindow::viewmode() const
@@ -342,6 +343,24 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 // #endif
 
 	makeTree(fs.get(), m->root_dir_item);
+
+#ifdef Q_OS_WIN
+	auto iidl = FileItem::getDriveRoot().idlist();
+	auto *item = ui->treeView->itemFromIidl(iidl);
+	if (item) {
+		auto index = ui->treeView->indexFromItem(item);
+		auto *parent = item->parent(); // maybe Desktop
+		if (parent) {
+			parent->takeChild(index.row()); // detach Drives from Desktop
+			m->my_computer_item->addChild(item, 0); // insert Drives into top of My Computer
+			m->drive_root = item;
+		}
+	}
+#else
+	m->drive_root = m->root_dir_item;
+#endif
+
+
 
 	m->bookmarks_root_item = new_FolderTreeItem();
 	m->bookmarks_root_item->setText(0, tr("Bookmarks"));
@@ -997,7 +1016,7 @@ FolderTreeItem *MainWindow::openDirWindows(ItemIdList const &iidl)
 			iidl2.push_back((char)0); // two zeros for terminating the ITEMIDLIST
 			iidl2.push_back((char)0);
 			list.push_back(iidl2);
-			QString path = global->shapi->pathFromList((ITEMIDLIST *)iidl2.data());
+			// QString path = global->shapi->pathFromList((ITEMIDLIST *)iidl2.data());
 		}
 	}
 

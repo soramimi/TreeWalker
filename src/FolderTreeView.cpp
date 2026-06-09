@@ -242,10 +242,15 @@ public:
 	}
 };
 
-void FolderTreeItem::addChild(FolderTreeItem *child)
+void FolderTreeItem::addChild(FolderTreeItem *child, int row)
 {
 	child->parent_ = this;
-	children_.push_back(child);
+
+	if (row < 0 || row > children_.size()) {
+		row = children_.size();
+	}
+	children_.insert(children_.begin() + row, child);
+
 	clearChildrenCache(); // invalidate cache
 
 	if (model_) {

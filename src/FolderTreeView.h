@@ -47,7 +47,7 @@ public:
 	FolderTreeItem *parent();
 	FolderTreeItem *child(int i) const;
 
-	void addChild(FolderTreeItem *child);
+	void addChild(FolderTreeItem *child, int row = -1);
 	FolderTreeItem *takeChild(int row);
 
 	QString text() const;

@@ -104,6 +104,14 @@ FileItem FileItem::getDesktop()
 	return FileItem(p);
 }
 
+FileItem FileItem::getDriveRoot()
+{
+	Data *p = new Data;
+	p->idlist = WindowsShellAPI::getSpecialFolderLocation(CSIDL_DRIVES);
+	SHGetDesktopFolder(&p->shfolder);
+	return FileItem(p);
+}
+
 FileItem FileItem::getKnownFolder(const KNOWNFOLDERID_ &id)
 {
 	Data *p = new Data;

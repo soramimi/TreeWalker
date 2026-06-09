@@ -21,6 +21,7 @@ public:
 	operator bool () const;
 	ItemIdList idlist() const;
 	static FileItem getDesktop();
+	static FileItem getDriveRoot();
 	static FileItem getKnownFolder(KNOWNFOLDERID_ const &id);
 	static FileItem parseFolder(QString const &path);
 	static FileItem fromITEMIDLIST(ITEMIDLIST_ const *idl);
