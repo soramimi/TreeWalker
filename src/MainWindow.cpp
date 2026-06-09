@@ -92,6 +92,8 @@ struct MainWindow::Private {
 	bool hidden_files_visible = false;
 
 	std::map<QString, QIcon> icon_cache;
+
+	std::set<ItemIdList> iidl_hide_set;
 };
 
 QString getDisplayName(FileInfo2 const &info)
@@ -160,6 +162,19 @@ FileItemModel *MainWindow::fileitemmodel()
 
 void MainWindow::reloadContents()
 {
+#ifdef Q_OS_WIN
+	QString hidelist[] = { // 邪魔なので消すリスト
+		"//iidl//14001f400e3174f8b7b6dc47bc84b9e6b38f59030000", // Home
+		"//iidl//14001f41ea6588e81c0e204e9aa6edcd0212c87c0000", // Gallery
+		"//iidl//14001f5425481e03947bc34db131e946b44c8dd50000", // Library
+		"//iidl//14001f77d1a4b4b254274041a2eb9a76d9d7cdc60000", // Linux
+	};
+	for (size_t i = 0; i < std::size(hidelist); i++) {
+		m->iidl_hide_set.emplace(hidelist[i]);
+	}
+#endif
+
+
 	FolderTreeItem *rootitem = makeTreeCompletely();
 
 	ui->tableView->setModel(fileitemmodel());
@@ -271,6 +286,9 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 		sortFileInfoList(&dirs);
 
 		for (FileInfo2 const &info: dirs) {
+			if (m->iidl_hide_set.find(info.iidl) != m->iidl_hide_set.end()) {
+				continue;
+			}
 			auto item = new_FolderTreeItem();
 			setTreeViewSubDirItemData(item, info);
 #ifdef Q_OS_WIN
@@ -345,17 +363,20 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	makeTree(fs.get(), m->root_dir_item);
 
 #ifdef Q_OS_WIN
-	auto iidl = FileItem::getDriveRoot().idlist();
-	auto *item = ui->treeView->itemFromIidl(iidl);
-	if (item) {
-		auto index = ui->treeView->indexFromItem(item);
-		auto *parent = item->parent(); // maybe Desktop
-		if (parent) {
-			parent->takeChild(index.row()); // detach Drives from Desktop
-			m->my_computer_item->addChild(item, 0); // insert Drives into top of My Computer
-			m->drive_root = item;
+	auto MoveToMyComputerTop = [&](ItemIdList const &iidl){
+		auto *item = ui->treeView->itemFromIidl(iidl);
+		if (item) {
+			auto index = ui->treeView->indexFromItem(item);
+			auto *parent = item->parent(); // maybe Desktop
+			if (parent) {
+				parent->takeChild(index.row()); // detach from Desktop
+				m->my_computer_item->addChild(item, 0); // insert into top of My Computer
+				m->drive_root = item;
+			}
 		}
-	}
+	};
+	MoveToMyComputerTop(FileItem::getNetwork().idlist());
+	MoveToMyComputerTop(FileItem::getDrives().idlist());
 #else
 	m->drive_root = m->root_dir_item;
 #endif
@@ -942,9 +963,9 @@ QString MainWindow::currentLocation()
 				char *p = (char *)alloca(n * 2 + 1);
 				*p = 0;
 				for (int i = 0; i < n; i++) {
-					sprintf(p + i * 2, "%02x", iidl.data()[i]);
+					sprintf(p + i * 2, "%02x", (uint8_t)iidl.data()[i]);
 				}
-				loc = QString("iidl:") + p;
+				loc = QString(prefix_iidl) + p;
 			}
 		}
 	}
@@ -984,7 +1005,7 @@ void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderT
 		ok = true;
 	} else if (loc.startsWith(prefix_bookmark)) {
 		ok = true;
-	} else if (loc.startsWith("iidl:")) {
+	} else if (loc.startsWith(prefix_iidl)) {
 		ok = true;
 	} else {
 #ifdef Q_OS_WIN
@@ -1275,10 +1296,6 @@ void MainWindow::on_action_edit_sttings_triggered()
 	}
 }
 
-void MainWindow::on_action_test_triggered()
-{
-}
-
 void MainWindow::on_action_view_detailed_triggered()
 {
 	setViewMode(List);
@@ -1306,6 +1323,14 @@ void MainWindow::on_treeView_collapsed(const QModelIndex &index)
 {
 	if (ui->treeView->itemFromIndex(index) == m->my_computer_item) {
 		ui->treeView->setExpanded(m->my_computer_item, true); // 閉じさせない
+	}
+}
+
+void MainWindow::on_action_test_triggered()
+{
+	auto *item = ui->treeView->currentItem();
+	if (item) {
+		qDebug() << ui->lineEdit_address->text() << item->text();
 	}
 }
 

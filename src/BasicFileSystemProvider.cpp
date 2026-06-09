@@ -16,9 +16,9 @@ BasicFileSystemProvider::BasicFileSystemProvider(ItemIdList const &iidl)
 
 QString BasicFileSystemProvider::fixPath(QString path)
 {
-	if (path.startsWith("///")) {
-		path = path.mid(2);
-	}
+	// if (path.startsWith("///")) {
+	// 	path = path.mid(2);
+	// }
 	path = misc::realpath(path);
 	return path;
 }

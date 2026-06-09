@@ -104,10 +104,18 @@ FileItem FileItem::getDesktop()
 	return FileItem(p);
 }
 
-FileItem FileItem::getDriveRoot()
+FileItem FileItem::getDrives()
 {
 	Data *p = new Data;
 	p->idlist = WindowsShellAPI::getSpecialFolderLocation(CSIDL_DRIVES);
+	SHGetDesktopFolder(&p->shfolder);
+	return FileItem(p);
+}
+
+FileItem FileItem::getNetwork()
+{
+	Data *p = new Data;
+	p->idlist = WindowsShellAPI::getSpecialFolderLocation(CSIDL_NETWORK);
 	SHGetDesktopFolder(&p->shfolder);
 	return FileItem(p);
 }
