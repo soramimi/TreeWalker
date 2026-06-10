@@ -42,7 +42,7 @@ QString BasicFileSystemProvider::fileName() const
 	return iterator->fileName();
 }
 
-void BasicFileSystemProvider::setFileInfo(FileInfo2 *fi, QString const &name, QString const &path) const
+void BasicFileSystemProvider::setFileInfo(FileInfo2 *fi, QString const &name, QString const &path)
 {
 	fi->name = name;
 	fi->path = path;

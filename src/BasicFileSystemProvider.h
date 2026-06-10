@@ -13,7 +13,6 @@ private:
 		QDir::Filters filters = QDir::AllEntries | QDir::Hidden | QDir::System | QDir::AllDirs | QDir::NoDotAndDotDot;
 	} d;
 	std::shared_ptr<QDirIterator> iterator;
-	void setFileInfo(FileInfo2 *fi, const QString &name, const QString &path) const;
 	static QString fixPath(QString path);
 public:
 	BasicFileSystemProvider(ItemIdList const &iidl);
@@ -32,6 +31,8 @@ public:
 		ret->d = d;
 		return ret;
 	}
+
+	static void setFileInfo(FileInfo2 *fi, const QString &name, const QString &path);
 };
 
 

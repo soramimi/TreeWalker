@@ -16,7 +16,6 @@ SOURCES += \
 	$$PWD/src/FolderTreeView.cpp \
 	$$PWD/src/ItemIdList.cpp \
 	$$PWD/src/MyListWidget.cpp \
-	$$PWD/src/NetworkDiscoveryThread.cpp \
 	$$PWD/src/ThumbnailLoader.cpp \
 	$$PWD/src/ThumbnailView.cpp \
 	$$PWD/src/darktheme/DarkStyle.cpp \
@@ -57,7 +56,6 @@ HEADERS += \
 	$$PWD/src/FolderTreeView.h \
 	$$PWD/src/ItemIdList.h \
 	$$PWD/src/MyListWidget.h \
-	$$PWD/src/NetworkDiscoveryThread.h \
 	$$PWD/src/ThumbnailLoader.h \
 	$$PWD/src/ThumbnailView.h \
 	$$PWD/src/darktheme/DarkStyle.h \
@@ -73,6 +71,7 @@ HEADERS += \
 	$$PWD/src/q/FileInfo.h \
 	$$PWD/src/q/helper.h \
 	$$PWD/src/realpath.h \
+	$$PWD/src/xdg.h \
 	MyTreeWidget.h \
 	src/AbstractFileSystemProvider.h \
 	src/AbstractSettingForm.h \
@@ -103,8 +102,16 @@ FORMS += \
 	src/SettingsDialog.ui
 
 win32:SOURCES += src/WindowsFileSystemProvider.cpp \
+	$$PWD/src/NetworkDiscoveryThread.cpp \
 	$$PWD/src/wstring.cpp \
 	src/WindowsShellAPI.cpp
 win32:HEADERS += src/WindowsFileSystemProvider.h \
+	$$PWD/src/NetworkDiscoveryThread.h \
 	$$PWD/src/wstring.h \
 	src/WindowsShellAPI.h
+
+!win32:SOURCES += \
+	$$PWD/src/xdg.cpp
+
+!win32:HEADERS += \
+	$$PWD/src/xdg.h

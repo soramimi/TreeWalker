@@ -9,6 +9,7 @@
 #include <QFileInfo>
 #include "wstring.h"
 #else
+#include <QFileInfo>
 #include <limits.h>
 #endif
 

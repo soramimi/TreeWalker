@@ -25,6 +25,8 @@
 #include "NetworkDiscoveryThread.h"
 #include "WindowsFileSystemProvider.h"
 #include "WindowsShellAPI.h"
+#else
+#include "xdg.h"
 #endif
 
 QString dumpByteArray(QByteArray const &ba)
@@ -95,7 +97,9 @@ struct MainWindow::Private {
 	std::map<QString, QIcon> icon_cache;
 
 	std::set<ItemIdList> iidl_hide_set;
+#ifdef Q_OS_WIN
 	NetworkDiscoveryThread network_discovery_thread;
+#endif
 };
 
 static QString getDisplayName(FileInfo2 const &info)
@@ -146,6 +150,7 @@ MainWindow::MainWindow(QWidget *parent)
 		openTableItem(index);
 	});
 
+#ifdef Q_OS_WIN
 	connect(&m->network_discovery_thread, &NetworkDiscoveryThread::filesChanged, [&](){
 		auto item = ui->treeView->itemFromIidl(FileItem::getNetwork().idlist());
 		if (item) {
@@ -155,13 +160,14 @@ MainWindow::MainWindow(QWidget *parent)
 			}
 		}
 	});
+#endif
 
-	m->network_discovery_thread.start();
 
 #ifdef Q_OS_WIN
+	m->network_discovery_thread.start();
 	m->fs_factory = FileSystemProviderPtr(new WindowsFileSystemProvider());
 #else
-	m->fs_factory = FileSystemProviderPtr(new BasicFileSystemProvider(QString("///").toUtf8()));
+	m->fs_factory = FileSystemProviderPtr(new BasicFileSystemProvider(QString("/").toUtf8()));
 #endif
 }
 
@@ -173,7 +179,9 @@ MainWindow::~MainWindow()
 			thread->wait();
 		}
 	}
+#ifdef Q_OS_WIN
 	m->network_discovery_thread.detach();
+#endif
 	delete m;
 	delete ui;
 }
@@ -283,6 +291,7 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 
 	std::vector<FileInfo2> dirs;
 
+#ifdef Q_OS_WIN
 	if (WindowsFileSystemProvider *wfs = dynamic_cast<WindowsFileSystemProvider *>(fs)) {
 		if (wfs->iidl() == FileItem::getNetwork().idlist()) {
 			std::vector<FileInfo2> dirs2 = m->network_discovery_thread.files();
@@ -297,6 +306,7 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 			goto happy;
 		}
 	}
+#endif
 
 	while (fs->fetch()) {
 		FileInfo2 info = fs->fileInfo();
@@ -382,13 +392,15 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	ui->treeView->clear();
 
 
-	auto fs = m->fs_factory->create(FileItem::getDrives().idlist());
 	// fs->fetch();
 #ifdef Q_OS_WIN
+	auto fs = m->fs_factory->create(FileItem::getDrives().idlist());
 	FileInfo2 info = WindowsFileSystemProvider::getFileInfo(nullptr, FileItem::getDrives().idlist());
 #else
+	QString path = "/";
+	auto fs = m->fs_factory->create(path);
 	FileInfo2 info;
-	setFileInfo(&fi, "/", "/");
+	BasicFileSystemProvider::setFileInfo(&info, path, path);
 #endif
 	m->root_dir_item = new_FolderTreeItem();
 	setTreeViewSubDirItemData(m->root_dir_item, info);
@@ -431,6 +443,16 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	}
 #else
 	m->drive_root = m->root_dir_item;
+	
+	{
+		QString path = QString::fromStdString(xdg::get_desktop_dir());
+		FileInfo2 info;
+		BasicFileSystemProvider::setFileInfo(&info, "Desktop", path);
+		auto *item = new_FolderTreeItem();
+		setTreeViewSubDirItemData(item, info);
+		addPlaceholder(item);
+		m->my_computer_item->addChild(item);
+	}
 #endif
 
 
