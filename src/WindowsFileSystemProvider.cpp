@@ -346,13 +346,16 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	ITEMIDLIST const *iidl_;
 	{
 		char const *p = (char const *)iidl.data();
-		if (p[0] == 0xff && p[1] == 0xff) {
-			p += 2;
-		}
+		// if (p[0] == 0xff && p[1] == 0xff) {
+		// 	p += 2;
+		// }
 		iidl_ = reinterpret_cast<ITEMIDLIST const *>(p);
 	}
 
 	SHGetFileInfo((wchar_t const *)iidl_, 0, &sfinfo, sizeof(SHFILEINFO), SHGFI_PIDL | SHGFI_DISPLAYNAME | SHGFI_ATTRIBUTES);
+	if (sfinfo.dwAttributes == 0) {
+		return FileInfo2();
+	}
 
 	fi.path = WindowsShellAPI::getPathFromIDList(iidl_);
 	if (fi.path.isEmpty() && !(sfinfo.dwAttributes & SFGAO_FOLDER)) {
@@ -360,10 +363,10 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	}
 
 	QFileInfo qfi(fi.path);
-
 	fi.iidl = iidl.d.iidl;
 	fi.name = QString::fromUtf16((ushort const *)sfinfo.szDisplayName);
-	fi.isdir = fi.path.isEmpty() || qfi.isDir();
+	fi.isdir = fi.path.isEmpty() || qfi.isDir() || (sfinfo.dwAttributes & SFGAO_FOLDER);
+	fprintf(stderr, "%s %08x\n", fi.name.toStdString().c_str(), sfinfo.dwAttributes);
 	if (isPhysicalFilesystemFolder(iidl_)) {
 		// 物理ファイルシステムのフォルダはストックアイコンを使用する。
 		// （プレビューつきフォルダアイコンを生成させないため）
@@ -384,10 +387,10 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	return fi;
 }
 
-FileInfo2 WindowsFileSystemProvider::firstFileInfo() const
+FileInfo2 WindowsFileSystemProvider::drivesFileInfo() const
 {
 	// return WindowsFileSystemProvider::getFileInfo(m->hImageList, m->fileitem.idlist());
-	return WindowsFileSystemProvider::getFileInfo(m->hImageList, FileItem::getDesktop().idlist());
+	return WindowsFileSystemProvider::getFileInfo(m->hImageList, FileItem::getDrives().idlist());
 }
 
 bool WindowsFileSystemProvider::hasReadPermission() const

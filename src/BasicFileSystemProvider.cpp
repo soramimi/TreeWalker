@@ -58,12 +58,12 @@ void BasicFileSystemProvider::setFileInfo(FileInfo2 *fi, QString const &name, QS
 	fi->ishidden = qfi.isHidden() || name.startsWith('.');
 }
 
-FileInfo2 BasicFileSystemProvider::firstFileInfo() const
-{
-	FileInfo2 fi;
-	setFileInfo(&fi, currentDir(), currentDir());
-	return fi;
-}
+// FileInfo2 BasicFileSystemProvider::firstFileInfo() const
+// {
+// 	FileInfo2 fi;
+// 	setFileInfo(&fi, currentDir(), currentDir());
+// 	return fi;
+// }
 
 bool BasicFileSystemProvider::hasReadPermission() const
 {

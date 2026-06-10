@@ -381,8 +381,15 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 {
 	ui->treeView->clear();
 
-	auto fs = m->fs_factory->create(m->fs_factory->firstFileInfo().iidl);
-	FileInfo2 info = fs->firstFileInfo();
+
+	auto fs = m->fs_factory->create(FileItem::getDrives().idlist());
+	// fs->fetch();
+#ifdef Q_OS_WIN
+	FileInfo2 info = WindowsFileSystemProvider::getFileInfo(nullptr, FileItem::getDrives().idlist());
+#else
+	FileInfo2 info;
+	setFileInfo(&fi, "/", "/");
+#endif
 	m->root_dir_item = new_FolderTreeItem();
 	setTreeViewSubDirItemData(m->root_dir_item, info);
 
@@ -412,8 +419,16 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 			}
 		}
 	};
-	MoveToMyComputerTop(FileItem::getNetwork().idlist());
-	MoveToMyComputerTop(FileItem::getDrives().idlist());
+	// MoveToMyComputerTop(FileItem::getNetwork().idlist());
+	// MoveToMyComputerTop(FileItem::getDrives().idlist());
+
+	if (1) {
+		FileInfo2 info2 = WindowsFileSystemProvider::getFileInfo(nullptr, FileItem::getDesktop().idlist());
+		auto *item = new_FolderTreeItem();
+		setTreeViewSubDirItemData(item, info2);
+		addPlaceholder(item);
+		m->my_computer_item->addChild(item);
+	}
 #else
 	m->drive_root = m->root_dir_item;
 #endif

@@ -47,7 +47,7 @@ public:
 	bool isDir() const;
 	static QImage getIcon(HIMAGELIST_ hImageList, void const *iidl);
 	static FileInfo2 getFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl);
-	FileInfo2 firstFileInfo() const;
+	FileInfo2 drivesFileInfo() const;
 	bool hasReadPermission() const;
 	QIcon icon();
 
