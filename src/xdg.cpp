@@ -6,7 +6,7 @@
 #include <fstream>
 #include <string>
 
-static std::string get_home_dir()
+std::string xdg::get_home_dir()
 {
     if (const char *home = std::getenv("HOME")) {
         if (*home) return home;
@@ -20,7 +20,7 @@ static std::string unquote_xdg_value(std::string s)
         s = s.substr(1, s.size() - 2);
     }
 
-    std::string home = get_home_dir();
+    std::string home = xdg::get_home_dir();
 
     // XDG config normally uses "$HOME/Desktop"
     const std::string prefix = "$HOME";
@@ -33,7 +33,7 @@ static std::string unquote_xdg_value(std::string s)
 
 static std::filesystem::path _get_desktop_dir()
 {
-    const std::string home = get_home_dir();
+    const std::string home = xdg::get_home_dir();
     if (home.empty()) {
         return {};
     }

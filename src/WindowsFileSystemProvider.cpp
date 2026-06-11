@@ -387,10 +387,14 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	return fi;
 }
 
-FileInfo2 WindowsFileSystemProvider::drivesFileInfo() const
+FileInfo2 WindowsFileSystemProvider::desktopFileInfo() const
 {
-	// return WindowsFileSystemProvider::getFileInfo(m->hImageList, m->fileitem.idlist());
-	return WindowsFileSystemProvider::getFileInfo(m->hImageList, FileItem::getDrives().idlist());
+	return WindowsFileSystemProvider::getFileInfo(nullptr, FileItem::getDesktop().idlist());
+}
+
+FileInfo2 WindowsFileSystemProvider::firstFileInfo() const
+{
+	return WindowsFileSystemProvider::getFileInfo(nullptr, FileItem::getDrives().idlist());
 }
 
 bool WindowsFileSystemProvider::hasReadPermission() const

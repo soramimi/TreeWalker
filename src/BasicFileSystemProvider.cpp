@@ -3,6 +3,7 @@
 #include "joinpath.h"
 #include "ApplicationGlobal.h"
 #include "realpath.h"
+#include "xdg.h"
 
 
 
@@ -58,12 +59,22 @@ void BasicFileSystemProvider::setFileInfo(FileInfo2 *fi, QString const &name, QS
 	fi->ishidden = qfi.isHidden() || name.startsWith('.');
 }
 
-// FileInfo2 BasicFileSystemProvider::firstFileInfo() const
-// {
-// 	FileInfo2 fi;
-// 	setFileInfo(&fi, currentDir(), currentDir());
-// 	return fi;
-// }
+FileInfo2 BasicFileSystemProvider::desktopFileInfo() const
+{
+	QString path = QString::fromStdString(xdg::get_desktop_dir());
+	FileInfo2 info;
+	BasicFileSystemProvider::setFileInfo(&info, "Desktop", path);
+	return info;
+}
+
+FileInfo2 BasicFileSystemProvider::firstFileInfo() const
+{
+	const QString path = "/";
+	const QString name = "/";
+	FileInfo2 info;
+	setFileInfo(&info, name, path);
+	return info;
+}
 
 bool BasicFileSystemProvider::hasReadPermission() const
 {

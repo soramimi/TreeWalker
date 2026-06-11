@@ -11,6 +11,7 @@
 #else
 #include <QFileInfo>
 #include <limits.h>
+#include "xdg.h"
 #endif
 
 /**
@@ -51,8 +52,9 @@ std::string misc::realpath(const char *path)
 #else
 	std::string s;
 	if (*path == '~') {
-		char const *home = getenv("HOME");
-		if (home) {
+		// char const *home = getenv("HOME");
+		auto home = xdg::get_home_dir();
+		if (!home.empty()) {
 			s = home;
 			s = s / (path + 1);
 			path = s.c_str();
@@ -75,6 +77,6 @@ std::string misc::realpath(std::string const &path)
 
 QString misc::realpath(QString const &path)
 {
-	QFileInfo info(path);
-	return info.absoluteFilePath();
+	auto s = realpath(path.toStdString());
+	return QString::fromStdString(s);
 }

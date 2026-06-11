@@ -25,8 +25,6 @@
 #include "NetworkDiscoveryThread.h"
 #include "WindowsFileSystemProvider.h"
 #include "WindowsShellAPI.h"
-#else
-#include "xdg.h"
 #endif
 
 QString dumpByteArray(QByteArray const &ba)
@@ -395,12 +393,13 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	// fs->fetch();
 #ifdef Q_OS_WIN
 	auto fs = m->fs_factory->create(FileItem::getDrives().idlist());
-	FileInfo2 info = WindowsFileSystemProvider::getFileInfo(nullptr, FileItem::getDrives().idlist());
+	// FileInfo2 info = WindowsFileSystemProvider::getFileInfo(nullptr, FileItem::getDrives().idlist());
+	FileInfo2 info = fs->firstFileInfo();
 #else
 	QString path = "/";
 	auto fs = m->fs_factory->create(path);
-	FileInfo2 info;
-	BasicFileSystemProvider::setFileInfo(&info, path, path);
+	FileInfo2 info = fs->firstFileInfo();
+	// BasicFileSystemProvider::setFileInfo(&info, path, path);
 #endif
 	m->root_dir_item = new_FolderTreeItem();
 	setTreeViewSubDirItemData(m->root_dir_item, info);
@@ -445,9 +444,9 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	m->drive_root = m->root_dir_item;
 	
 	{
-		QString path = QString::fromStdString(xdg::get_desktop_dir());
-		FileInfo2 info;
-		BasicFileSystemProvider::setFileInfo(&info, "Desktop", path);
+		// QString path = QString::fromStdString(xdg::get_desktop_dir());
+		FileInfo2 info = fs->desktopFileInfo();
+		// BasicFileSystemProvider::setFileInfo(&info, "Desktop", path);
 		auto *item = new_FolderTreeItem();
 		setTreeViewSubDirItemData(item, info);
 		addPlaceholder(item);
