@@ -32,6 +32,12 @@ struct FileInfo2 {
 	}
 };
 
+FileInfo2 desktopFileInfo();
+FileInfo2 firstFileInfo();
+#ifdef Q_OS_WIN
+FileInfo2 networkFileInfo();
+#endif
+
 class AbstractFileSystemProvider {
 public:
 	virtual QString currentDir() const = 0;
@@ -40,8 +46,6 @@ public:
 	virtual FileInfo2 fileInfo() const = 0;
 	virtual bool isDir() const = 0;
 	virtual FileSystemProviderPtr create(ItemIdList const &iidl) = 0;
-	virtual FileInfo2 desktopFileInfo() const = 0;
-	virtual FileInfo2 firstFileInfo() const = 0;
 	virtual bool hasReadPermission() const = 0;
 
 	virtual std::shared_ptr<AbstractFileSystemProvider> dup(ItemIdList const &iidl) = 0;

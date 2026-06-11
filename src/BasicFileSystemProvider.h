@@ -22,8 +22,6 @@ public:
 	FileInfo2 fileInfo() const;
 	bool isDir() const;
 	FileSystemProviderPtr create(ItemIdList const &iidl);
-	FileInfo2 desktopFileInfo() const;
-	FileInfo2 firstFileInfo() const;
 	bool hasReadPermission() const;
 
 	std::shared_ptr<AbstractFileSystemProvider> dup(ItemIdList const &iidl)

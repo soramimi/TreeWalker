@@ -75,9 +75,7 @@ struct MainWindow::Private {
 	FolderTreeItem *my_computer_item;
 	FolderTreeItem *drive_root;
 	FolderTreeItem *root_dir_item; // for POSIX=/, for Windows=Desktop
-// #ifdef Q_OS_WIN
-// #else
-// #endif
+
 	FolderTreeItem *bookmarks_root_item;
 
 	QFileIconProvider icon_provider;
@@ -203,8 +201,7 @@ void MainWindow::reloadContents()
 	}
 #endif
 
-
-	FolderTreeItem *rootitem = makeTreeCompletely();
+	makeTreeCompletely();
 
 	ui->tableView->setModel(fileitemmodel());
 	ui->thumbnailView->setModel(fileitemmodel());
@@ -389,18 +386,9 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 {
 	ui->treeView->clear();
 
-
-	// fs->fetch();
-#ifdef Q_OS_WIN
-	auto fs = m->fs_factory->create(FileItem::getDrives().idlist());
-	// FileInfo2 info = WindowsFileSystemProvider::getFileInfo(nullptr, FileItem::getDrives().idlist());
-	FileInfo2 info = fs->firstFileInfo();
-#else
-	QString path = "/";
-	auto fs = m->fs_factory->create(path);
-	FileInfo2 info = fs->firstFileInfo();
-	// BasicFileSystemProvider::setFileInfo(&info, path, path);
-#endif
+	FileInfo2 info = firstFileInfo();
+	auto fs = m->fs_factory->create(info.iidl);
+	
 	m->root_dir_item = new_FolderTreeItem();
 	setTreeViewSubDirItemData(m->root_dir_item, info);
 
@@ -410,51 +398,27 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	ui->treeView->addTopLevelItem(m->my_computer_item);
 	m->my_computer_item->addChild(m->root_dir_item);
 	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(prefix_mycomputer));
-// #ifdef Q_OS_WIN
-	// m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(QString("///")));
-// #else
-// #endif
 
 	makeTree(fs.get(), m->root_dir_item);
+	m->drive_root = m->root_dir_item;
 
-#ifdef Q_OS_WIN
-	auto MoveToMyComputerTop = [&](ItemIdList const &iidl){
-		auto *item = ui->treeView->itemFromIidl(iidl);
-		if (item) {
-			auto index = ui->treeView->indexFromItem(item);
-			auto *parent = item->parent(); // maybe Desktop
-			if (parent) {
-				parent->takeChild(index.row()); // detach from Desktop
-				m->my_computer_item->addChild(item, 0); // insert into top of My Computer
-				m->drive_root = item;
-			}
-		}
-	};
-	// MoveToMyComputerTop(FileItem::getNetwork().idlist());
-	// MoveToMyComputerTop(FileItem::getDrives().idlist());
-
-	if (1) {
-		FileInfo2 info2 = WindowsFileSystemProvider::getFileInfo(nullptr, FileItem::getDesktop().idlist());
+	{
+		FileInfo2 info2 = desktopFileInfo();
 		auto *item = new_FolderTreeItem();
 		setTreeViewSubDirItemData(item, info2);
 		addPlaceholder(item);
 		m->my_computer_item->addChild(item);
 	}
-#else
-	m->drive_root = m->root_dir_item;
-	
+
+#ifdef Q_OS_WIN
 	{
-		// QString path = QString::fromStdString(xdg::get_desktop_dir());
-		FileInfo2 info = fs->desktopFileInfo();
-		// BasicFileSystemProvider::setFileInfo(&info, "Desktop", path);
+		FileInfo2 info3 = networkFileInfo();
 		auto *item = new_FolderTreeItem();
-		setTreeViewSubDirItemData(item, info);
+		setTreeViewSubDirItemData(item, info3);
 		addPlaceholder(item);
 		m->my_computer_item->addChild(item);
 	}
 #endif
-
-
 
 	m->bookmarks_root_item = new_FolderTreeItem();
 	m->bookmarks_root_item->setText(0, tr("Bookmarks"));
@@ -486,8 +450,6 @@ FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList iidl)
 			QString path;
 			if (iidl[0] == '/' && iidl[1] == '/') {
 				path = QString::fromUtf8(iidl.data() + 2, iidl.size() - 2);
-			// } else if (iidl[0] == 0xff && iidl[1] == 0xff) {
-			// 	path = global->shapi->pathFromList((ITEMIDLIST *)(iidl.data() + 2));
 			} else {
 				path = global->shapi->pathFromList((ITEMIDLIST *)iidl.data());
 			}
@@ -784,7 +746,7 @@ void MainWindow::setFocusFolderTree()
 
 QImage MainWindow::queryThumbnail(QString const &path)
 {
-#ifdef _WIN32
+#ifdef Q_OS_WIN
 	QFileInfo fi(path);
 	if (fi.isDir()) {
 		ItemIdList iidl = global->shapi->parseDisplayName(path);
@@ -1121,7 +1083,6 @@ FolderTreeItem *MainWindow::openDirWindows(ItemIdList const &iidl)
 			iidl2.push_back((char)0); // two zeros for terminating the ITEMIDLIST
 			iidl2.push_back((char)0);
 			list.push_back(iidl2);
-			// QString path = global->shapi->pathFromList((ITEMIDLIST *)iidl2.data());
 		}
 	}
 
