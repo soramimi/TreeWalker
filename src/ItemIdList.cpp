@@ -51,28 +51,14 @@ ItemIdList::ItemIdList(QString const &path)
 
 QString ItemIdList::path() const
 {
-#ifdef Q_OS_WIN
-	if (d.iidl.size() < 2) {
-		return FileItem::getDesktop().idlist().path();
-	}
-#else
-	if (d.iidl.isEmpty()) {
-		return {};
-	}
-#endif
+	if (d.iidl.isEmpty()) return {};
 
 	if (d.type == ItemIdList::Type::PATH) {
 		return QString::fromUtf8(d.iidl);
 	}
 
-	// if (d.iidl.size() >= 2 && d.iidl[0] == '/' && d.iidl[1] == '/') {
-	// 	return QString::fromUtf8(d.iidl.mid(2));
-	// }
-
 #ifdef Q_OS_WIN
-	if (d.iidl[0] == 0xff && d.iidl[1] == 0xff) {
-		return global->shapi->getPathFromIDList(d.iidl.mid(2));
-	} else {
+	if (d.type == ItemIdList::Type::WIN_SHELL_ITEMIDLIST) {
 		return global->shapi->getPathFromIDList(d.iidl);
 	}
 #else

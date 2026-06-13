@@ -1,12 +1,9 @@
 #include "WindowsFileSystemProvider.h"
-
-#include "WindowsShellAPI.h"
 #include "ApplicationGlobal.h"
-
+#include "WindowsShellAPI.h"
 #include <QFileInfo>
 #include <commoncontrols.h>
 #include <shlwapi.h>
-#include "ApplicationGlobal.h"
 
 static inline WindowsShellAPI *shapi()
 {
@@ -47,9 +44,11 @@ bool WindowsFileSystemProvider::isPhysicalFilesystemFolder(ItemIdList const &iid
 		return qfi.isDir() && !qfi.isSymLink();
 	}
 	if (iidl.size() < 2) return false;
-	if (iidl[0] == '/' && iidl[1] == '/') {
+#ifdef Q_OS_WIN
+	if (iidl[0] == '/' && iidl[1] == '/') { // network drive
 		return true;
 	}
+#endif
 	return isPhysicalFilesystemFolder((ITEMIDLIST *)iidl.data());
 }
 
@@ -338,6 +337,7 @@ QImage WindowsFileSystemProvider::getStockFolderIcon()
 
 FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl)
 {
+	Q_ASSERT(iidl.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST);
 	if (iidl.d.iidl.size() < 2) return {};
 
 	FileInfo2 fi;
@@ -346,9 +346,6 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	ITEMIDLIST const *iidl_;
 	{
 		char const *p = (char const *)iidl.data();
-		// if (p[0] == 0xff && p[1] == 0xff) {
-		// 	p += 2;
-		// }
 		iidl_ = reinterpret_cast<ITEMIDLIST const *>(p);
 	}
 
@@ -366,7 +363,7 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	fi.iidl = iidl.d.iidl;
 	fi.name = QString::fromUtf16((ushort const *)sfinfo.szDisplayName);
 	fi.isdir = fi.path.isEmpty() || qfi.isDir() || (sfinfo.dwAttributes & SFGAO_FOLDER);
-	fprintf(stderr, "%s %08x\n", fi.name.toStdString().c_str(), sfinfo.dwAttributes);
+
 	if (isPhysicalFilesystemFolder(iidl_)) {
 		// 物理ファイルシステムのフォルダはストックアイコンを使用する。
 		// （プレビューつきフォルダアイコンを生成させないため）

@@ -57,9 +57,6 @@ public:
 
 QImage winQueryThumbnail(const QString &path);
 
-
-//QByteArray makeShellIDListArray(QString const &path);
-
 QString Win32ParseShellLink(const QString &path);
 
 

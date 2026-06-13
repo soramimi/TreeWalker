@@ -75,7 +75,7 @@ private:
 	void toggleBookbarkBarVisible();
 public:
 	void reloadContents();
-        static void sortFileInfoList(std::vector<FileInfo2> *list);
+	static void sortFileInfoList(std::vector<FileInfo2> *list);
 	void setStatusBarText(const QString &text);
 	std::vector<FileInfo2> windowsMyComputerFiles();
 	QImage queryThumbnail(const QString &path);

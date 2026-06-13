@@ -102,6 +102,8 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 			break;
 		case IidlRole:
 			break;
+		case KindRole:
+			break;
 		}
 	}
 	return QVariant();
@@ -131,6 +133,16 @@ QVariant FileItemModel::headerData(int section, Qt::Orientation orientation, int
 		}
 	}
 	return QVariant();
+}
+
+const FileInfo2 *FileItemModel::fileinfo(const QModelIndex &index) const
+{
+	int row = index.row();
+	if (row >= 0 && row < items.size()) {
+		int col = index.column();
+		return &items[row].info;
+	}
+	return nullptr;
 }
 
 

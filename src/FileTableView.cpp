@@ -64,7 +64,9 @@ public:
 	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
 	{
 		if (FileTableView const *w = qobject_cast<FileTableView const *>(option.widget)) {
-//			QString text = w->model()->data(index, Qt::DisplayRole).toString();
+			FileInfo2 const *fileinfo = w->model()->fileinfo(index);
+			Q_ASSERT(fileinfo);
+			// Kind kind = (Kind)w->model()->data(index, KindRole).toInt();
 #if 0
 			int flags = Qt::AlignVCenter;
 			if (index.column() == 1) {
@@ -105,6 +107,8 @@ public:
 			}
 			bool strong_suffix = false;
 			if (location_.startsWith(prefix_bookmark)) {
+				// pass
+			} else if (fileinfo->isdir) {
 				// pass
 			} else {
 				strong_suffix = global->appsettings.strongly_draw_file_suffix && (col == 0);

@@ -252,15 +252,16 @@ void MainWindow::setStatusBarText(QString const &text)
 void MainWindow::setTreeViewSubDirItemData(FolderTreeItem *item, FileInfo2 const &info)
 {
 	QString path = info.path;
+
 	ItemIdList iidl = info.iidl;
 #ifdef Q_OS_WIN
 	path.replace('\\', '/');
-	if (iidl.size() >= 2 && iidl[0] == '/' && iidl[1] == '/') {
+	if (iidl.size() >= 2 && iidl[0] == '/' && iidl[1] == '/') { // network drive
 		QString path2 = iidl.path();
-		iidl = global->shapi->parseDisplayName(path2);
 		iidl = global->shapi->parseDisplayName(path2);
 	}
 #endif
+
 	item->setText(0, getDisplayName(info));
 	item->setData(0, KindRole, (int)Kind::SubDirectory);
 	item->setData(0, NameRole, info.name);
@@ -454,7 +455,7 @@ FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList iidl)
 				path = global->shapi->pathFromList((ITEMIDLIST *)iidl.data());
 			}
 			if (!path.isEmpty()) {
-				fs = std::make_shared<BasicFileSystemProvider>(("//" + path).toUtf8());
+				fs = std::make_shared<BasicFileSystemProvider>(path);
 			}
 		}
 	}
@@ -955,7 +956,6 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 				fileitem.modified = info.modified;
 				model->items.push_back(fileitem);
 			}
-			ui->tableView->reset();
 		} else if (loc.kind == Kind::ChromeBookmark) {
 			auto it = m->bookmark_items.find(loc.path);
 			if (it == m->bookmark_items.end()) return;
@@ -974,6 +974,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 	// qDebug() << t.elapsed();
 
 	m->file_item_model.setKind(loc.kind);
+	ui->tableView->reset();
 	ui->tableView->setKind(loc.kind);
 	ui->thumbnailView->setKind(loc.kind);
 	ui->tableView->setLocation(loc.path);

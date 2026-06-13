@@ -111,12 +111,6 @@ bool iidlpop(std::vector<char> *iidl, std::vector<char> *last)
 	return true;
 }
 
-
-
-
-
-
-
 // WindowsShellAPI
 
 struct WindowsShellAPI::Private {
@@ -318,15 +312,13 @@ QString WindowsShellAPI::getPathFromIDList(ITEMIDLIST const *iidl)
 
 QString WindowsShellAPI::getPathFromIDList(ItemIdList const &iidl)
 {
-	QString path;
-	if (iidl.size() > 2 && iidl[0] == '/' && iidl[1] == '/') {
-		path = QString::fromUtf8(iidl.data() + 2, iidl.size() - 2);
-	} else if (iidl.size() > 2 && iidl[0] == 0xff && iidl[1] == 0xff) {
-		path = getPathFromIDList((ITEMIDLIST *)(iidl.data() + 2));
-	} else if (!iidl.empty()) {
-		path = getPathFromIDList((ITEMIDLIST *)iidl.data());
+	if (iidl.type() == ItemIdList::Type::PATH) {
+		return QString::fromUtf8(iidl.iidl());
 	}
-	return path;
+	if (iidl.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST) {
+		return getPathFromIDList((ITEMIDLIST *)iidl.data());
+	}
+	return {};
 }
 
 QByteArray WindowsShellAPI::getKnownFolderIDList(KNOWNFOLDERID const &id)

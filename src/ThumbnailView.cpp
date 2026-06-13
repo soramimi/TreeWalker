@@ -32,6 +32,9 @@ public:
 		ThumbnailView *widget = qobject_cast<ThumbnailView *>(parent());
 		QStyle *s = qApp->style();
 
+		FileInfo2 const *fileinfo = widget->model()->fileinfo(index);
+		Q_ASSERT(fileinfo);
+
 		QStyleOptionViewItem o1;
 		initStyleOption(&o1, index);
 		o1.state = QStyle::State_Selected | QStyle::State_Active;
@@ -91,8 +94,11 @@ public:
 
 		// wip: bold rendering of file extensions
 		
-		bool strong_suffix = true;
-		if (strong_suffix) {
+		bool strong_suffix = false;
+		if (fileinfo->isdir) {
+			// pass
+		} else {
+			strong_suffix = true;
 			int i = name.lastIndexOf('.');
 			if (i > 0) {
 				suffix = name.mid(i + 1);

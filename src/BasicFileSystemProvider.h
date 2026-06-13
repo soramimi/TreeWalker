@@ -34,5 +34,4 @@ public:
 	static void setFileInfo(FileInfo2 *fi, const QString &name, const QString &path);
 };
 
-
 #endif // BASICFILESYSTEMPROVIDER_H
