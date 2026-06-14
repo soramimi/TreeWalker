@@ -7,12 +7,15 @@
 #include <string>
 #include <string_view>
 #include <vector>
-#include <cstdint>
 
 #ifdef _WIN32
 #else
 #include <strings.h>
 #endif
+
+// #ifdef APP_GUITAR
+#include <QString>
+// #endif
 
 namespace misc {
 
@@ -154,9 +157,6 @@ static inline T toi(std::string_view const &s, size_t *consumed = nullptr)
 	return sign ? -n : n;
 }
 
-std::u16string convert_utf8_to_utf16(std::string_view const &s);
-std::string convert_utf16_to_utf8(std::u16string_view const &s);
-
 static inline void append(std::vector<char> *out, char const *ptr, size_t len)
 {
 	if (out && ptr && len > 0) {
@@ -179,6 +179,7 @@ static inline void append(std::vector<char> *out, std::string_view const &v)
 std::string strip_vt(std::string_view const &s);
 
 std::string getProgram(std::string const &cmdline);
+
 
 uint64_t get_tick_count();
 

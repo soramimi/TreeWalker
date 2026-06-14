@@ -1,5 +1,5 @@
-#include "realpath.h"
-#include "misc.h"
+#include "common/realpath.h"
+#include "common/misc.h"
 #include "joinpath.h"
 
 #ifdef _WIN32

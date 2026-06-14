@@ -4,6 +4,14 @@
 #include <QByteArray>
 #include <QString>
 #include <QMetaType>
+#include <string>
+
+static constexpr std::string_view prefix_mycomputer = "//mycomputer//";
+static constexpr std::string_view prefix_bookmark = "//bookmark//";
+static constexpr std::string_view prefix_itemidlist = "//itemidlist//";
+
+std::string iidlBinaryToString(QByteArray const &ba);
+QByteArray iidlStringToBinary(std::string const hex);
 
 class ItemIdList {
 	friend class FileItem;

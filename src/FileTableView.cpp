@@ -1,6 +1,7 @@
 #include "FileTableView.h"
 #include "ApplicationGlobal.h""
 #include "MainWindow.h"
+#include "common/str.h"
 #include <QItemDelegate>
 #include <QPainter>
 #include <QStyledItemDelegate>
@@ -66,31 +67,20 @@ public:
 		if (FileTableView const *w = qobject_cast<FileTableView const *>(option.widget)) {
 			FileInfo2 const *fileinfo = w->model()->fileinfo(index);
 			Q_ASSERT(fileinfo);
-			// Kind kind = (Kind)w->model()->data(index, KindRole).toInt();
-#if 0
-			int flags = Qt::AlignVCenter;
-			if (index.column() == 1) {
-				flags |= Qt::AlignRight;
-			}
-			w->style()->drawItemText(painter, option.rect.adjusted(2, 0, -3, 0), flags, option.palette, true, text);
-#else
+
 			int col = index.column();
-			QStyleOptionViewItem o;// = option;
+			QStyleOptionViewItem o;
 			initStyleOption(&o, index);
-//			o.text = text;
 			o.rect = option.rect.adjusted(2, 0, -2, 0);
 			if (col == 0) {
 				QRect r1(w->visualRect(w->model()->index(index.row(), 0)));
 				QRect r2(w->visualRect(w->model()->index(index.row(), w->model()->columnCount() - 1)));
 				painter->save();
-				// painter->setOpacity(0.75);
 				painter->setClipRect(o.rect);
 				QStyleOptionViewItem o2 = o;
 				o2.rect = r1.united(r2);
-				// o2.state = QStyle::State_Selected | QStyle::State_Active;
 				o2.state = option.state;
 				o2.showDecorationSelected = true;
-				// painter->drawEllipse(o2.rect);
 				qApp->style()->drawPrimitive(QStyle::PE_PanelItemViewItem, &o2, painter, w);
 				painter->restore();
 			}
@@ -106,7 +96,7 @@ public:
 				o.displayAlignment |= Qt::AlignRight;
 			}
 			bool strong_suffix = false;
-			if (location_.startsWith(prefix_bookmark)) {
+			if (location_.startsWith((misc::str)prefix_bookmark)) {
 				// pass
 			} else if (fileinfo->isdir) {
 				// pass
@@ -114,7 +104,6 @@ public:
 				strong_suffix = global->appsettings.strongly_draw_file_suffix && (col == 0);
 			}
 			drawItemViewText(strong_suffix, w->style(), painter, &o, true);
-#endif
 		}
 	}
 	void setLocation(const QString &loc)
@@ -125,7 +114,6 @@ public:
 
 
 struct FileTableView::Private {
-	// FileItemModel model;
 	FileTableItemDelegate item_delegate;
 	Kind kind = Kind::File;
 };

@@ -115,7 +115,7 @@ private:
 		FolderTreeItem *treeitem;
 	};
 	void makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent, TreeInfo *find = nullptr);
-	void fetchSubFolders(FolderTreeItem *parent = {});
+		void fetchSubFolders(FolderTreeItem *parent = {}, bool check_placeholder = true);
 
 	FolderTreeItem *findBookmarkTreeItem(QString const &path, FolderTreeItem *item);
 #ifdef Q_OS_WIN
@@ -144,6 +144,7 @@ private:
 	void setCurrentIIDL(ItemIdList iidl);
 	bool hasSubDir(AbstractFileSystemProvider *fs, const ItemIdList &iidl);
 	void addPlaceholder(FolderTreeItem *item);
+	void updateCurrentFolder();
 protected:
 	bool acceptKeyEvent(QKeyEvent *event);
 	bool eventFilter(QObject *watched, QEvent *event);

@@ -1,6 +1,7 @@
 #include "WindowsFileSystemProvider.h"
 #include "ApplicationGlobal.h"
 #include "WindowsShellAPI.h"
+#include "common/str.h"
 #include <QFileInfo>
 #include <commoncontrols.h>
 #include <shlwapi.h>
@@ -150,12 +151,12 @@ FileItem FileItem::fromITEMIDLIST(ItemIdList const &idl)
 		if (idl.d.type == ItemIdList::Type::PATH) {
 			QString path = idl.path();
 			if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
-				if (path.startsWith(prefix_iidl)) {
-					QByteArray ba = QByteArray::fromHex(path.mid(prefix_iidl.size()).toLatin1());
+				if (path.startsWith((misc::str)prefix_itemidlist)) {
+					QByteArray ba = QByteArray::fromHex(path.mid(prefix_itemidlist.size()).toLatin1());
 					p->idlist = ItemIdList(ba);
 					p->shfolder = shapi()->getShellFolder(p->idlist.d.iidl);
 					return {p};
-				} else if (path.startsWith(prefix_mycomputer)) {
+				} else if (path.startsWith(QLatin1StringView(prefix_mycomputer))) {
 				}
 				return {p};
 			}
@@ -343,18 +344,14 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	FileInfo2 fi;
 
 	SHFILEINFO sfinfo;
-	ITEMIDLIST const *iidl_;
-	{
-		char const *p = (char const *)iidl.data();
-		iidl_ = reinterpret_cast<ITEMIDLIST const *>(p);
-	}
+	ITEMIDLIST const *iidl_p = reinterpret_cast<ITEMIDLIST const *>(iidl.data());
 
-	SHGetFileInfo((wchar_t const *)iidl_, 0, &sfinfo, sizeof(SHFILEINFO), SHGFI_PIDL | SHGFI_DISPLAYNAME | SHGFI_ATTRIBUTES);
+	SHGetFileInfo((wchar_t const *)iidl_p, 0, &sfinfo, sizeof(SHFILEINFO), SHGFI_PIDL | SHGFI_DISPLAYNAME | SHGFI_ATTRIBUTES);
 	if (sfinfo.dwAttributes == 0) {
 		return FileInfo2();
 	}
 
-	fi.path = WindowsShellAPI::getPathFromIDList(iidl_);
+	fi.path = WindowsShellAPI::getPathFromIDList(iidl_p);
 	if (fi.path.isEmpty() && !(sfinfo.dwAttributes & SFGAO_FOLDER)) {
 		return FileInfo2();
 	}
@@ -364,13 +361,13 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	fi.name = QString::fromUtf16((ushort const *)sfinfo.szDisplayName);
 	fi.isdir = fi.path.isEmpty() || qfi.isDir() || (sfinfo.dwAttributes & SFGAO_FOLDER);
 
-	if (isPhysicalFilesystemFolder(iidl_)) {
+	if (isPhysicalFilesystemFolder(iidl_p)) {
 		// 物理ファイルシステムのフォルダはストックアイコンを使用する。
 		// （プレビューつきフォルダアイコンを生成させないため）
 		fi.icon = QIcon(QPixmap::fromImage(getStockFolderIcon()));
 	} else {
 		// 通常ファイルと仮想フォルダはシェルAPIからアイコンを取得する。
-		fi.icon = QIcon(QPixmap::fromImage(getIcon(hImageList, iidl_)));
+		fi.icon = QIcon(QPixmap::fromImage(getIcon(hImageList, iidl_p)));
 	}
 	fi.size = qfi.size();
 	fi.modified = qfi.lastModified();

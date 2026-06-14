@@ -18,17 +18,23 @@ SOURCES += \
 	$$PWD/src/MyListWidget.cpp \
 	$$PWD/src/ThumbnailLoader.cpp \
 	$$PWD/src/ThumbnailView.cpp \
+	$$PWD/src/common/AbstractSimpleIO.cpp \
+	$$PWD/src/common/npos.cpp \
+	$$PWD/src/common/qmisc.cpp \
+	$$PWD/src/common/realpath.cpp \
+	$$PWD/src/common/unicode_conversion.cpp \
+	$$PWD/src/common/urlencode.cpp \
+	$$PWD/src/common/wstring.cpp \
 	$$PWD/src/darktheme/DarkStyle.cpp \
 	$$PWD/src/darktheme/LightStyle.cpp \
 	$$PWD/src/darktheme/MyCommonStyle.cpp \
 	$$PWD/src/darktheme/NinePatch.cpp \
 	$$PWD/src/darktheme/TraditionalWindowsStyleTreeControl.cpp \
-	$$PWD/src/misc.cpp \
-	$$PWD/src/q/DateTime.cpp \
-	$$PWD/src/q/Dir.cpp \
-	$$PWD/src/q/DirIterator.cpp \
-	$$PWD/src/q/FileInfo.cpp \
-	$$PWD/src/realpath.cpp \
+	$$PWD/src/common/misc.cpp \
+	$$PWD/src/common/q/DateTime.cpp \
+	$$PWD/src/common/q/Dir.cpp \
+	$$PWD/src/common/q/DirIterator.cpp \
+	$$PWD/src/common/q/FileInfo.cpp \
 	src/AbstractFileSystemProvider.cpp \
 	src/AbstractSettingForm.cpp \
 	src/ApplicationGlobal.cpp \
@@ -58,19 +64,34 @@ HEADERS += \
 	$$PWD/src/MyListWidget.h \
 	$$PWD/src/ThumbnailLoader.h \
 	$$PWD/src/ThumbnailView.h \
+	$$PWD/src/common/AbstractSimpleIO.h \
+	$$PWD/src/common/base64.h \
+	$$PWD/src/common/charvec.h \
+	$$PWD/src/common/crc32.h \
+	$$PWD/src/common/fmt.h \
+	$$PWD/src/common/htmlencode.h \
+	$$PWD/src/common/joinpath.h \
+	$$PWD/src/common/jstream.h \
+	$$PWD/src/common/npos.h \
+	$$PWD/src/common/qmisc.h \
+	$$PWD/src/common/realpath.h \
+	$$PWD/src/common/str.h \
+	$$PWD/src/common/strformat.h \
+	$$PWD/src/common/unicode_conversion.h \
+	$$PWD/src/common/urlencode.h \
+	$$PWD/src/common/wstring.h \
 	$$PWD/src/darktheme/DarkStyle.h \
 	$$PWD/src/darktheme/LightStyle.h \
 	$$PWD/src/darktheme/MyCommonStyle.h \
 	$$PWD/src/darktheme/NinePatch.h \
 	$$PWD/src/darktheme/TraditionalWindowsStyleTreeControl.h \
 	$$PWD/src/darktheme/darkstylehelper.i \
-	$$PWD/src/misc.h \
-	$$PWD/src/q/DateTime.h \
-	$$PWD/src/q/Dir.h \
-	$$PWD/src/q/DirIterator.h \
-	$$PWD/src/q/FileInfo.h \
-	$$PWD/src/q/helper.h \
-	$$PWD/src/realpath.h \
+	$$PWD/src/common/misc.h \
+	$$PWD/src/common/q/DateTime.h \
+	$$PWD/src/common/q/Dir.h \
+	$$PWD/src/common/q/DirIterator.h \
+	$$PWD/src/common/q/FileInfo.h \
+	$$PWD/src/common/q/helper.h \
 	$$PWD/src/xdg.h \
 	MyTreeWidget.h \
 	src/AbstractFileSystemProvider.h \

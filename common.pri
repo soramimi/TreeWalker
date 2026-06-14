@@ -12,3 +12,5 @@ win32:lessThan(QT_MAJOR_VERSION, 6) {
     QT += winextras
 }
 
+DEFINES += NOMINMAX
+

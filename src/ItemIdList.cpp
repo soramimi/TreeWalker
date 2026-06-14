@@ -1,12 +1,73 @@
 #include "ItemIdList.h"
 #include "ApplicationGlobal.h"
 
-#include "realpath.h"
+#include "common/realpath.h"
+#include "common/str.h"
+#include "common/misc.h"
 
 #ifdef Q_OS_WIN
 #include "WindowsFileSystemProvider.h"
 #include "WindowsShellAPI.h"
 #endif
+
+std::string iidlBinaryToString(QByteArray const &ba)
+{
+	std::string hex;
+	char const *begin = ba.data();
+	char const *end = ba.data() + ba.size();
+	char const *ptr = begin;
+	while (ptr < end) {
+		uint16_t len = *(uint16_t *)ptr;
+		if (len == 0) break;
+		if (len <= 2 || ptr + len >= end) {
+			return {};
+		}
+		for (int i = 2; i < len; i++) {
+			char tmp[3];
+			sprintf(tmp, "%02x", (uint8_t)ptr[i]);
+			hex += tmp;
+		}
+		hex += '/';
+		ptr += len;
+	}
+	return (std::string)prefix_itemidlist + hex;
+}
+
+QByteArray iidlStringToBinary(std::string const hex)
+{
+	QByteArray ba;
+	if (misc::starts_with(hex, prefix_itemidlist)) {
+		char const *begin = hex.data() + prefix_itemidlist.size();
+		char const *end = hex.data() + hex.size();
+		char const *ptr = begin;
+		while (ptr < end) {
+			QByteArray ba2;
+			while (ptr < end) {
+				if (*ptr == '/') {
+					ptr++;
+					break;
+				}
+				if (ptr + 1 < end) {
+					char tmp[3] = {ptr[0], ptr[1], 0};
+					uint8_t c = (uint8_t)strtoul(tmp, nullptr, 16);
+					ba2.push_back(c);
+					ptr += 2;
+				} else {
+					return {};
+				}
+			}
+			if (ba2.isEmpty()) return {};
+			uint16_t len = ba2.size() + 2;
+			ba.push_back((char)(len & 0xff));
+			ba.push_back((char)((len >> 8) & 0xff));
+			ba += ba2;
+		}
+		ba.push_back((char)0);
+		ba.push_back((char)0);
+		return ba;
+	}
+	return {};
+}
 
 ItemIdList::ItemIdList(const QByteArray &iidl)
 {
@@ -18,8 +79,8 @@ ItemIdList::ItemIdList(QString const &path)
 {
 #ifdef Q_OS_WIN
 	if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
-		if (path.startsWith(prefix_iidl)) {
-			QByteArray iidl = QByteArray::fromHex(path.mid(prefix_iidl.size()).toUtf8());
+		if (path.startsWith((misc::str)prefix_itemidlist)) {
+			QByteArray iidl = QByteArray::fromHex(path.mid(prefix_itemidlist.size()).toUtf8());
 			int n = iidl.size();
 			while (n > 0 && iidl[n - 1] == 0) {
 				n--;
@@ -64,4 +125,5 @@ QString ItemIdList::path() const
 #else
 	return QString::fromUtf8(d.iidl);
 #endif
+	return {};
 }

@@ -19,12 +19,15 @@
 #include <QStandardPaths>
 #include <QTableWidgetItem>
 #include <QTimer>
-#include "realpath.h"
+#include "common/realpath.h"
+#include "common/str.h"
+#include "common/misc.h"
 
 #ifdef Q_OS_WIN
 #include "NetworkDiscoveryThread.h"
 #include "WindowsFileSystemProvider.h"
 #include "WindowsShellAPI.h"
+#include <common/q/helper.h>
 #endif
 
 QString dumpByteArray(QByteArray const &ba)
@@ -398,7 +401,7 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	m->my_computer_item->setData(0, KindRole, (int)Kind::Directory);
 	ui->treeView->addTopLevelItem(m->my_computer_item);
 	m->my_computer_item->addChild(m->root_dir_item);
-	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(prefix_mycomputer));
+	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>((QS)prefix_mycomputer));
 
 	makeTree(fs.get(), m->root_dir_item);
 	m->drive_root = m->root_dir_item;
@@ -424,7 +427,7 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	m->bookmarks_root_item = new_FolderTreeItem();
 	m->bookmarks_root_item->setText(0, tr("Bookmarks"));
 	m->bookmarks_root_item->setData(0, KindRole, (int)Kind::ChromeBookmark);
-	m->bookmarks_root_item->setData(0, PathRole, prefix_bookmark);
+	m->bookmarks_root_item->setData(0, PathRole, (QS)prefix_bookmark);
 	m->my_computer_item->addChild(m->bookmarks_root_item);
 
 	return m->root_dir_item;
@@ -438,11 +441,11 @@ FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList iidl)
 	if (iidl.type() == ItemIdList::Type::PATH) {
 		QString path = iidl.path();
 		if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
-			if (path.startsWith(prefix_mycomputer)) {
+			if (path.startsWith((misc::str)prefix_mycomputer)) {
 				iidl = {m->my_computer_item->iidl()};
 				return std::make_shared<BasicFileSystemProvider>(ItemIdList{});
-			} else if (path.startsWith(prefix_iidl)) {
-				iidl = {QByteArray::fromHex(path.mid(prefix_iidl.size()).toUtf8())};
+			} else if (path.startsWith((misc::str)prefix_itemidlist)) {
+				iidl = {QByteArray::fromHex(path.mid(prefix_itemidlist.size()).toUtf8())};
 			}
 		}
 	}
@@ -467,18 +470,24 @@ FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList iidl)
 	return fs;
 }
 
-void MainWindow::fetchSubFolders(FolderTreeItem *parent)
+void MainWindow::fetchSubFolders(FolderTreeItem *parent, bool check_placeholder)
 {
 	if (!parent) return;
 	Kind kind = (Kind)parent->data(0, KindRole).toInt();
 	if (kind == Kind::Directory || kind == Kind::SubDirectory) {
-		if (parent->childCount() == 1) {
-			FolderTreeItem *child = parent->child(0);
-			if ((Kind)child->data(0, KindRole).toInt() == Kind::Placeholder) {
-				ItemIdList iidl = parent->data(0, IidlRole).value<ItemIdList>();
-				FileSystemProviderPtr fs = newFileSystemPtr(iidl);
-				makeTree(fs.get(), parent);
+		auto HasPlaceholder = [&](){
+			if (parent->childCount() == 1) {
+				FolderTreeItem *child = parent->child(0);
+				if ((Kind)child->data(0, KindRole).toInt() == Kind::Placeholder) {
+					return true;
+				}
 			}
+			return false;
+		};
+		if (!check_placeholder || HasPlaceholder()) {
+			ItemIdList iidl = parent->data(0, IidlRole).value<ItemIdList>();
+			FileSystemProviderPtr fs = newFileSystemPtr(iidl);
+			makeTree(fs.get(), parent);
 		}
 	}
 }
@@ -569,7 +578,7 @@ void MainWindow::openTableItem(QModelIndex const &index)
 		return;
 	}
 	QString url = Data(UrlRole).toString();
-	if (url.startsWith(prefix_bookmark) && url.endsWith(" /")) {
+	if (url.startsWith((misc::str)prefix_bookmark) && url.endsWith(" /")) {
 		auto item = findBookmarkTreeItem(url, m->bookmarks_root_item);
 		ui->treeView->setExpanded(item, true);
 		ui->treeView->setCurrentItem(item);
@@ -632,12 +641,19 @@ bool MainWindow::acceptKeyEvent(QKeyEvent *event)
 	return true;
 }
 
+void MainWindow::updateCurrentFolder()
+{
+	auto item = ui->treeView->currentItem();
+	fetchSubFolders(item, false);
+}
+
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
 	if (event->type() == QEvent::KeyPress) {
 		QKeyEvent *ke = (QKeyEvent *)event;
 		if (focusWidget() == ui->treeView) {
 			if (ke->key() == '*') {
+				updateCurrentFolder();
 				return true; // suppress tree expansion
 			}
 			if (ke->key() == Qt::Key_Left || ke->key() == Qt::Key_Enter || ke->key() == Qt::Key_Return) {
@@ -735,6 +751,12 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 			}
 			setHiddenFilesVisible(!hiddenFilesVisible());
 			return;
+		case Qt::Key_Right:
+			if (focuswidget == ui->treeView) {
+				updateCurrentFolder();
+				return;
+			}
+			break;
 		}
 	}
 }
@@ -913,24 +935,25 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		if (loc != m->current_location) return;
 	}
 
-	struct DeferResetModel {
-		FileItemModel *model;
-		DeferResetModel(FileItemModel *model)
-			: model(model)
-		{
-			model->beginResetModel();
-		}
-		~DeferResetModel() {
-			model->endResetModel();
-		}
-	};
-
 	auto *model = fileitemmodel();
+
 
 	QElapsedTimer t;
 	t.start();
 
 	{
+		struct DeferResetModel {
+			FileItemModel *model;
+			DeferResetModel(FileItemModel *model)
+				: model(model)
+			{
+				model->beginResetModel();
+			}
+			~DeferResetModel() {
+				model->endResetModel();
+			}
+		};
+
 		DeferResetModel defer1(model);
 
 		model->items.clear();
@@ -971,8 +994,6 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		}
 	}
 
-	// qDebug() << t.elapsed();
-
 	m->file_item_model.setKind(loc.kind);
 	ui->tableView->reset();
 	ui->tableView->setKind(loc.kind);
@@ -1006,13 +1027,10 @@ QString MainWindow::currentLocation()
 			if (iidl.type() == ItemIdList::Type::PATH) {
 				loc = iidl.path();
 			} else if (iidl.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST) {
-				int n = iidl.size();
-				char *p = (char *)alloca(n * 2 + 1);
-				*p = 0;
-				for (int i = 0; i < n; i++) {
-					sprintf(p + i * 2, "%02x", (uint8_t)iidl.data()[i]);
+				loc = (QS)prefix_itemidlist;
+				for (int i = 0; i < iidl.size(); i++) {
+					loc += QString::asprintf("%02x", (uint8_t)iidl.data()[i]);
 				}
-				loc = QString(prefix_iidl) + p;
 			}
 		}
 	}
@@ -1048,11 +1066,11 @@ void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderT
 	m->thumbnail_loader.clearRequests();
 
 	bool ok = false;
-	if (loc.startsWith(prefix_mycomputer)) {
+	if (loc.startsWith((misc::str)prefix_mycomputer)) {
 		ok = true;
-	} else if (loc.startsWith(prefix_bookmark)) {
+	} else if (loc.startsWith((misc::str)prefix_bookmark)) {
 		ok = true;
-	} else if (loc.startsWith(prefix_iidl)) {
+	} else if (loc.startsWith((misc::str)prefix_itemidlist)) {
 		ok = true;
 	} else {
 #ifdef Q_OS_WIN
@@ -1298,7 +1316,7 @@ void MainWindow::fetchBookmarks()
 			QJsonValue v = roots.value(key);
 			QJsonObject child = v.toObject();
 			if (!child.isEmpty()) {
-				makeBookmarkMap(prefix_bookmark, child, 0, parent);
+				makeBookmarkMap((QS)prefix_bookmark, child, 0, parent);
 			}
 		}
 	}
@@ -1374,9 +1392,5 @@ void MainWindow::on_treeView_collapsed(const QModelIndex &index)
 
 void MainWindow::on_action_test_triggered()
 {
-	auto *item = ui->treeView->currentItem();
-	if (item) {
-		qDebug() << ui->lineEdit_address->text() << item->text();
-	}
 }
 

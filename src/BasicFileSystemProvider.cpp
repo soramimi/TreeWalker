@@ -2,7 +2,7 @@
 #include <QDebug>
 #include "joinpath.h"
 #include "ApplicationGlobal.h"
-#include "realpath.h"
+#include "common/realpath.h"
 #include "xdg.h"
 
 #ifdef Q_OS_WIN
