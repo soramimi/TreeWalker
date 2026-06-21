@@ -24,7 +24,6 @@ SOURCES += \
 	$$PWD/src/common/realpath.cpp \
 	$$PWD/src/common/unicode_conversion.cpp \
 	$$PWD/src/common/urlencode.cpp \
-	$$PWD/src/common/wstring.cpp \
 	$$PWD/src/darktheme/DarkStyle.cpp \
 	$$PWD/src/darktheme/LightStyle.cpp \
 	$$PWD/src/darktheme/MyCommonStyle.cpp \
@@ -79,7 +78,6 @@ HEADERS += \
 	$$PWD/src/common/strformat.h \
 	$$PWD/src/common/unicode_conversion.h \
 	$$PWD/src/common/urlencode.h \
-	$$PWD/src/common/wstring.h \
 	$$PWD/src/darktheme/DarkStyle.h \
 	$$PWD/src/darktheme/LightStyle.h \
 	$$PWD/src/darktheme/MyCommonStyle.h \
@@ -124,11 +122,11 @@ FORMS += \
 
 win32:SOURCES += src/WindowsFileSystemProvider.cpp \
 	$$PWD/src/NetworkDiscoveryThread.cpp \
-	$$PWD/src/wstring.cpp \
+	$$PWD/src/common/wstring.cpp \
 	src/WindowsShellAPI.cpp
 win32:HEADERS += src/WindowsFileSystemProvider.h \
 	$$PWD/src/NetworkDiscoveryThread.h \
-	$$PWD/src/wstring.h \
+	$$PWD/src/common/wstring.h \
 	src/WindowsShellAPI.h
 
 !win32:SOURCES += \

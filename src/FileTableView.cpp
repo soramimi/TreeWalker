@@ -1,5 +1,5 @@
 #include "FileTableView.h"
-#include "ApplicationGlobal.h""
+#include "ApplicationGlobal.h"
 #include "MainWindow.h"
 #include "common/str.h"
 #include <QItemDelegate>
@@ -13,8 +13,12 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 	bool enabled = (option->state & QStyle::State_Enabled);
 	p->save();
 	p->setFont(option->font);
+	
+	int flags = option->displayAlignment;
 	QString name = option->text;
 	QString suffix;
+	QRect rSuffix;
+	
 	if (strong_suffix) {
 		int i = name.lastIndexOf('.');
 		if (i > 0) {
@@ -22,20 +26,35 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 			name = name.left(i + 1);
 		}
 	}
-	int flags = option->displayAlignment;
+
+	if (!suffix.isEmpty()) {
+		p->save();
+		QFont font = option->font;
+		if (strong_suffix) {
+			font.setBold(true);
+		}
+		p->setFont(font);
+		rSuffix = p->fontMetrics().boundingRect(option->rect, flags, suffix);
+		p->restore();
+	}
+	
 	if (abbreviation) {
 		int n = name.size();
-		if (n > 1) {
-			int w = option->rect.width();
+		constexpr int min_length = 1;
+		if (n > min_length) {
+			const int rect_width = option->rect.width();
 			QFontMetrics fm = p->fontMetrics();
-			if (fm.size(0, name).width() > w) {
+			auto Width = [&](){
+				return fm.size(0, name).width() + rSuffix.width();
+			};
+			if (Width() > rect_width) {
 				if (flags & Qt::AlignRight) {
 					flags &= ~Qt::AlignRight;
 					flags |= Qt::AlignLeft;
 				}
-				int lineheight = fm.height();
-				while (n > 1) {
-					if (fm.size(0, name + suffix).width() <= w) break;
+				fm.height();
+				while (n > min_length) {
+					if (Width() <= rect_width) break;
 					n--;
 					name = name.mid(0, n);
 					name += "...";
@@ -43,17 +62,20 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 			}
 		}
 	}
+
 	QRect rName = p->fontMetrics().boundingRect(option->rect, flags, name);
 	s->drawItemText(p, rName, flags, option->palette, enabled, name, QPalette::NoRole);
+	
 	if (strong_suffix && !suffix.isEmpty()) {
 		p->save();
 		QFont font = option->font;
 		font.setBold(true);
 		p->setFont(font);
-		QRect rSuffix = p->fontMetrics().boundingRect(option->rect, flags, suffix).translated(rName.width(), 0);
-		s->drawItemText(p, rSuffix, flags, option->palette, enabled, suffix, QPalette::NoRole);
+		QRect r = rSuffix.translated(rName.width(), 0);
+		s->drawItemText(p, r, flags, option->palette, enabled, suffix, QPalette::NoRole);
 		p->restore();
 	}
+	
 	p->restore();
 }
 

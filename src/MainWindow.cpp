@@ -22,6 +22,7 @@
 #include "common/realpath.h"
 #include "common/str.h"
 #include "common/misc.h"
+#include "common/q/helper.h""
 
 #ifdef Q_OS_WIN
 #include "NetworkDiscoveryThread.h"
