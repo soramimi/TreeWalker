@@ -35,6 +35,16 @@ public:
 		FileInfo2 const *fileinfo = widget->model()->fileinfo(index);
 		Q_ASSERT(fileinfo);
 
+		QString name = index.data(Qt::DisplayRole).toString();
+		QString suffix;
+		{
+			int i = name.lastIndexOf('.');
+			if (i > 0) {
+				suffix = name.mid(i + 1);
+				name = name.left(i + 1);
+			}
+		}
+
 		QStyleOptionViewItem o1;
 		initStyleOption(&o1, index);
 		o1.state = QStyle::State_Selected | QStyle::State_Active;
@@ -73,7 +83,23 @@ public:
 		int w = o2.rect.width() - 8;
 		int h = w * 3 / 4;
 		QIcon icon;
-		{
+		if (!fileinfo->isdir && (suffix.compare("zip", Qt::CaseInsensitive) == 0 || suffix.compare("gz", Qt::CaseInsensitive) == 0)) {
+			QString ext = suffix.toUpper();
+			QPixmap pm = QPixmap::fromImage(global->zip_file_icon);
+			{
+				QPainter pr(&pm);
+				pr.setFont(QFont("Arial", 40, QFont::Bold));
+				QRect r = pr.fontMetrics().boundingRect(ext);
+				r.adjust(-10, -2, 10, 2);
+				r = QRect(pm.rect().width() - r.width() - 4, pm.rect().height() / 2, r.width(), r.height());
+				pr.fillRect(r.translated(4, 4), Qt::black);
+				pr.fillRect(r.adjusted(-1, -1, 1, 1), Qt::black);
+				pr.fillRect(r.adjusted(1, 1, -1, -1), Qt::white);
+				pr.setPen(Qt::black);
+				pr.drawText(r, Qt::AlignCenter, ext);
+			}
+			icon = QIcon(pm);
+		} else {
 			QString text = index.data(PathRole).toString();
 			if (!text.isEmpty()) {
 				QImage image = widget->queryThubmanil(text);
@@ -89,8 +115,6 @@ public:
 
 		QTextOption textopt;
 		textopt.setAlignment((Qt::Alignment)(Qt::AlignCenter | Qt::AlignBottom));
-		QString name = index.data(Qt::DisplayRole).toString();
-		QString suffix;
 
 		// wip: bold rendering of file extensions
 		
@@ -99,11 +123,6 @@ public:
 			// pass
 		} else {
 			strong_suffix = true;
-			int i = name.lastIndexOf('.');
-			if (i > 0) {
-				suffix = name.mid(i + 1);
-				name = name.left(i + 1);
-			}
 		}
 
 		{

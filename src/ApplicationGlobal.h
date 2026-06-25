@@ -4,6 +4,7 @@
 #include "ApplicationSettings.h"
 
 #include <QColor>
+#include <QImage>
 #include <QString>
 
 class QApplication;
@@ -33,13 +34,14 @@ struct ApplicationGlobal {
 	QString profiles_xml_path;
 	QColor panel_bg_color;
 
+	QImage zip_file_icon;
+
 	ApplicationSettings appsettings;
 
 #ifdef Q_OS_WIN
 	std::shared_ptr<WindowsShellAPI> shapi;
 #endif
 
-	void init(QApplication *a);
 };
 
 extern ApplicationGlobal *global;

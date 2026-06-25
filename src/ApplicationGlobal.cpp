@@ -10,11 +10,10 @@ ApplicationGlobal::ApplicationGlobal()
 #ifdef Q_OS_WIN
 	shapi = std::make_shared<WindowsShellAPI>();
 #endif
+	{
+		zip_file_icon = QImage(":/image/zipicon.png");
+	}
 }
 
-void ApplicationGlobal::init(QApplication *a)
-{
-	(void)a;
-	// filetype.open();
-}
+
 

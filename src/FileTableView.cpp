@@ -98,7 +98,12 @@ public:
 				int z = o.rect.height() * 5 / 4;
 				QRect r = o.rect;
 				r.setWidth(r.height());
-				o.icon.paint(painter, r);
+				if (!fileinfo->isdir && fileinfo->name.endsWith(".zip", Qt::CaseInsensitive)) {
+					QIcon icon = QIcon(QPixmap::fromImage(global->zip_file_icon));
+					icon.paint(painter, r);
+				} else {
+					o.icon.paint(painter, r);
+				}
 				o.rect.adjust(z, 0, 0, 0);
 			}
 			o.displayAlignment = Qt::AlignVCenter;
