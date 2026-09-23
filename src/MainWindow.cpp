@@ -1201,7 +1201,27 @@ void MainWindow::onRefreshFileListDone(LocationData const &loc)
 	refreshFileList2(loc, false);
 }
 
-QString MainWindow::currentLocation()
+QString MainWindow::locationText(FolderTreeItem *item) const
+{
+	QString loc;
+	if (item) {
+		loc = item->data(0, PathRole).toString();
+		if (loc.isEmpty()) {
+			ItemIdList iidl = item->data(0, IidlRole).value<ItemIdList>();
+			if (iidl.type() == ItemIdList::Type::PATH) {
+				loc = iidl.path();
+			} else if (iidl.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST) {
+				loc = (QS)prefix_itemidlist;
+				for (int i = 0; i < iidl.size(); i++) {
+					loc += QString::asprintf("%02x", (uint8_t)iidl.data()[i]);
+				}
+			}
+		}
+	}
+	return loc;	
+}
+
+QString MainWindow::currentLocation() const
 {
 	QString loc;
 	auto item = ui->treeView->currentItem();

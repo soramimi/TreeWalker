@@ -60,10 +60,11 @@ void drawText(QPainter *painter, const QStyleOptionViewItem &opt, QRect r, const
 
 void drawText_filtered(QPainter *painter, const QStyleOptionViewItem &opt, const QRect &rect, QString const &text, IncrementalSearchFilter const *filter)
 {
+	bool done = false;
+	int x = rect.x();
 	if (filter && *filter) {
 		Result match = global->incremental_search->match(text.toStdString(), *filter);
 		if (match) {
-			int x = rect.x();
 			for (Result::Part const &part : match.parts) {
 				QString s = QString::fromStdString(part.text);
 				int w = painter->fontMetrics().horizontalAdvance(s);
@@ -76,11 +77,14 @@ void drawText_filtered(QPainter *painter, const QStyleOptionViewItem &opt, const
 				drawText(painter, opt, r, s);
 				x += w;
 			}
-			return;
+			done = true;
 		}
 	}
-
-	drawText(painter, opt, rect, text);
+	
+	if (!done) {
+		drawText(painter, opt, rect, text);
+		x += painter->fontMetrics().horizontalAdvance(text);
+	}
 }
 
 void fillFilteredBG(QPainter *painter, const QRect &rect)

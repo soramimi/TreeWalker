@@ -67,7 +67,6 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 	}
 
 	auto DrawItemText = [&](QRect const &rect, QString const &text) {
-		// s->drawItemText(p, rect, flags, option->palette, enabled, text, QPalette::NoRole);
 		incrementalsearch::drawText_filtered(p, *option, rect, text, &filter);
 	};
 	

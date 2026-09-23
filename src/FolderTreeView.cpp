@@ -1,4 +1,5 @@
 #include "FolderTreeView.h"
+#include "MainWindow.h"
 #include <QKeyEvent>
 #include <QDebug>
 #include <QStyledItemDelegate>
@@ -62,7 +63,7 @@ private:
 	mutable std::optional<std::vector<FolderTreeItem *>> filtered_items_ = std::nullopt;
 	bool isFiltered() const
 	{
-		return filtered_items_ != std::nullopt;
+		return (bool)filtered_items_;
 	}
 private:
 	void _insertChild(FolderTreeItem *child)
@@ -238,21 +239,30 @@ public:
 	QModelIndex indexFromItem(FolderTreeItem *item) const
 	{
 		if (item) {
-			auto it = item_set_.find(item);
-			if (it != item_set_.end() && *it == item) {
-				int row = 0;
-				FolderTreeItem const *parent = item->parent();
-				if (!parent) {
-					parent = &top_level_items_;
-					if (!parent) return {};
+			if (isFiltered()) {
+				// mutable std::optional<std::vector<FolderTreeItem *>> filtered_items_ = std::nullopt;
+				for (size_t row = 0; row < filtered_items_->size(); row++) {
+					if ((*filtered_items_)[row] == item) {
+						return createIndex(row, 0, nullptr);
+					}
 				}
-				// find the row number of this item from the parent
-				const_cast<FolderTreeItem *>(parent)->updateChildrenCache();
-				auto it2 = parent->children_cache_.find(item);
-				if (it2 != parent->children_cache_.end()) {
-					row = it2->second;
+			} else {
+				auto it = item_set_.find(item);
+				if (it != item_set_.end() && *it == item) {
+					int row = 0;
+					FolderTreeItem const *parent = item->parent();
+					if (!parent) {
+						parent = &top_level_items_;
+						if (!parent) return {};
+					}
+					// find the row number of this item from the parent
+					const_cast<FolderTreeItem *>(parent)->updateChildrenCache();
+					auto it2 = parent->children_cache_.find(item);
+					if (it2 != parent->children_cache_.end()) {
+						row = it2->second;
+					}
+					return createIndex(row, 0, item);
 				}
-				return createIndex(row, 0, item);
 			}
 		}
 		return {};
@@ -271,6 +281,13 @@ public:
 public:
 	bool hasChildren(const QModelIndex &parent) const
 	{
+		if (isFiltered()) {
+			if (parent.row() == -1 && parent.column() == -1) {
+				return true;
+			}
+			return false;
+		}
+		
 		FolderTreeItem *item = itemFromIndex(parent);
 		if (!item) {
 			return !top_level_items_.children()->empty();
@@ -358,7 +375,7 @@ QVariant FolderTreeItem::data(int column, int role) const
 
 class FolderTreeItemDelegate : public QStyledItemDelegate {
 private:
-	static void drawText(QPainter *painter, QStyleOptionViewItem const &opt, QRect const &rect, QString const &text, IncrementalSearchFilter const &filter)
+	static void drawText(QPainter *painter, QStyleOptionViewItem const &opt, QRect const &rect, QString const &text, QString const &extext, IncrementalSearchFilter const &filter)
 	{
 		incrementalsearch::drawText_filtered(painter, opt, rect, text, &filter);
 	}
@@ -378,8 +395,16 @@ public:
 		initStyleOption(&opt, index);
 
 		FolderTreeView const *treeview = qobject_cast<FolderTreeView const *>(opt.widget);
-		Q_ASSERT(treeview);
 		IncrementalSearchFilter const &filter = treeview->filter();
+		FolderTreeItem *item = treeview->itemFromIndex(index);
+		QString text = opt.text;
+		QString extext = global->mainwindow->locationText(item);
+
+		if (filter && !extext.isEmpty()) {
+			text = extext;
+		}
+		
+		Q_ASSERT(treeview);
 
 		QRect iconrect = opt.widget->style()->subElementRect(QStyle::SE_ItemViewItemDecoration, &opt, opt.widget);
 		QRect textrect = opt.widget->style()->subElementRect(QStyle::SE_ItemViewItemText, &opt, opt.widget);
@@ -394,7 +419,7 @@ public:
 		opt.icon.paint(painter, iconrect);
 
 		// テキストを描画
-		drawText(painter, opt, textrect, opt.text, filter);
+		drawText(painter, opt, textrect, text, {}, filter);
 #endif
 	}
 };
@@ -402,6 +427,8 @@ public:
 struct FolderTreeView::Private {
 	FolderTreeModel model;
 	IncrementalSearchFilter filter;
+	FolderTreeItem *saved_current_item = nullptr;
+	std::set<FolderTreeItem *, FolderTreeModel::item_set_less> saved_expansion_state;
 };
 
 FolderTreeView::FolderTreeView(QWidget *parent)
@@ -487,11 +514,15 @@ void FolderTreeView::endResetModel()
 
 bool FolderTreeView::isExpanded(FolderTreeItem *item) const
 {
+	if (filter()) return false;
+	
 	return isExpanded(indexFromItem(item));
 }
 
 void FolderTreeView::setExpanded(FolderTreeItem *item, bool f)
 {
+	if (filter()) return;
+	
 	QModelIndex index = indexFromItem(item);
 	setExpanded(index, f);
 }
@@ -524,23 +555,54 @@ void FolderTreeView::_set_filter(QString const &filter_text)
 
 void FolderTreeView::setFilter(const QString &filter_text)
 {
+	FolderTreeItem *restore_current_item = nullptr;
+	if (!filter() && !filter_text.isEmpty()) {
+		m->saved_current_item = currentItem();
+		m->saved_expansion_state.clear();
+		for (FolderTreeItem *item : m->model.item_set_) {
+			if (isExpanded(item)) {
+				m->saved_expansion_state.insert(item);
+			}
+		}
+	} else if (filter() && filter_text.isEmpty()) {
+		restore_current_item = m->saved_current_item;
+	}
+	
 	beginResetModel();
 	_set_filter(filter_text);
 	endResetModel();
-
-	setCurrentIndex(model()->index(0, 0));
+	
+	if (restore_current_item) {
+		for (FolderTreeItem *item : m->saved_expansion_state) {
+			setExpanded(item, true);
+		}
+		if (m->model.item_set_.find(restore_current_item) != m->model.item_set_.end()) {
+			setCurrentItem(restore_current_item);
+		}
+	} else {
+		setCurrentIndex(model()->index(0, 0));
+	}
 }
 
 void FolderTreeView::currentChanged(const QModelIndex &current, const QModelIndex &previous)
 {
 	FolderTreeItem *current_item = itemFromIndex(current);
 	FolderTreeItem *previous_item = itemFromIndex(previous);
+#if 0
+	if (current_item) {
+		QString loc = global->mainwindow->locationText(current_item);
+		qDebug() << loc;
+	}
+#endif
+	m->saved_current_item = current_item;
 	setCurrentIndex(current);
 	emit currentItemChanged(current_item, previous_item);
 }
 
 void FolderTreeView::onExpanded(const QModelIndex &index)
 {
+	if (filter()) return;
+	
 	FolderTreeItem *item = itemFromIndex(index);
 	setCurrentItem(item);
 	emit expanded(item);

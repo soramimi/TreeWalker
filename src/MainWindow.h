@@ -75,7 +75,8 @@ public:
 	ViewMode viewmode() const;
 	void setViewMode(ViewMode mode);
 	
-	QString currentLocation();
+	QString locationText(FolderTreeItem *item) const;
+	QString currentLocation() const;
 	QString currentFilePath();
 	void setAddressBarVisible(bool visible);
 	void toggleBookbarkBarVisible();
