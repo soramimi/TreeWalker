@@ -143,6 +143,7 @@ public:
 struct FileTableView::Private {
 	FileTableItemDelegate item_delegate;
 	Kind kind = Kind::File;
+	IncrementalSearchFilter filter;
 };
 
 FileTableView::FileTableView(QWidget *parent)
@@ -192,6 +193,49 @@ QString FileTableView::currentPath() const
 		return model()->data(indexes[0], PathRole).toString();
 	}
 	return QString();
+}
+
+void FileTableView::beginResetModel()
+{
+	model()->beginResetModel();
+}
+void FileTableView::endResetModel()
+{
+	model()->endResetModel();
+}
+
+void FileTableView::_set_filter(QString const &filter_text)
+{
+	model()->filtered_items_ = std::nullopt; // reset filtered items
+	m->filter = {};
+	if (!filter_text.isEmpty()) {
+		if (global->incremental_search) {
+			m->filter = global->incremental_search->makeFilter(filter_text.toStdString());
+#if 0
+
+			std::vector<FolderTreeItem *> items;
+			auto AddItem = [&](auto recursive, FolderTreeItem *item)-> void {
+				if (global->incremental_search->match(item->text().toStdString(), m->filter)) {
+					qDebug() << item->text();
+					if (!item->text().isEmpty()) {
+						items.push_back(item);
+					}
+				}
+				for (FolderTreeItem *child : *item->children()) {
+					recursive(recursive, child);
+				}
+			};
+			AddItem(AddItem, const_cast<FolderTreeItem *>(&model()->top_level_items_));
+			m->model.filtered_items_ = std::move(items);		
+#endif
+		}
+	}
+}
+void FileTableView::setFilter(const QString &filter_text)
+{
+	beginResetModel();
+	_set_filter(filter_text);
+	endResetModel();
 }
 
 void FileTableView::mouseDoubleClickEvent(QMouseEvent *e)

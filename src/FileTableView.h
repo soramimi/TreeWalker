@@ -14,6 +14,10 @@ class FileTableView : public QTableView {
 private:
 	struct Private;
 	Private *m;
+	void _set_filter(const QString &filter_text);
+protected:
+	void beginResetModel();
+	void endResetModel();
 public:
 	FileTableView(QWidget *parent);
 	~FileTableView();
@@ -28,6 +32,11 @@ public:
 
 	QString currentPath() const;
 	// QWidget interface
+	
+	
+	
+	void setFilter(const QString &filter_text);
+	
 protected:
 	void mouseDoubleClickEvent(QMouseEvent *e);
 signals:

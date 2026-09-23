@@ -102,7 +102,7 @@ struct MainWindow::Private {
 	NetworkDiscoveryThread network_discovery_thread;
 #endif
 	
-	MainWindow::FilterTarget filter_target = MainWindow::FilterTarget::RepositorySearch;
+	MainWindow::FilterTarget filter_target = MainWindow::FilterTarget::FolderTreeSearch;
 	StatusLabel *status_bar_label;
 };
 
@@ -501,6 +501,117 @@ void MainWindow::fetchSubFolders(FolderTreeItem *parent, bool check_placeholder)
 	}
 }
 
+void MainWindow::refreshFileList2(LocationData const &loc, bool force)
+{
+	QString select_location = m->last_location;
+	int select_row = 0;
+
+	m->last_location = loc.path; // update current location
+
+	{
+		int i = m->fetch_location_threads.size();
+		while (i > 0) {
+			i--;
+			auto t = m->fetch_location_threads[i];
+			if (!t->isRunning()) {
+				m->fetch_location_threads.erase(m->fetch_location_threads.begin() + i);
+			}
+		}
+	}
+
+	ui->tableView->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+	ui->tableView->verticalHeader()->setDefaultSectionSize(20);
+
+	if (!force) {
+		if (loc != m->current_location) return;
+	}
+
+	auto *model = fileitemmodel();
+
+
+	QElapsedTimer t;
+	t.start();
+
+	{
+		struct DeferResetModel {
+			FileItemModel *model;
+			DeferResetModel(FileItemModel *model)
+				: model(model)
+			{
+				model->beginResetModel();
+			}
+			~DeferResetModel() {
+				model->endResetModel();
+			}
+		};
+
+		DeferResetModel defer1(model);
+
+		model->items.clear();
+
+		IncrementalSearchFilter filter = global->incremental_search->makeFilter(getIncrementalSearchText().toStdString());
+		
+		if (loc.isDir()) {
+			for (int row = 0; row < loc.files.size(); row++) {
+				FileInfo2 const &info = loc.files[row];
+				if (!global->incremental_search->match(info.name.toStdString(), filter)) {
+					continue;
+				}
+				if (!m->hidden_files_visible && info.ishidden) continue;
+				FileItemModel::Item fileitem;
+				fileitem.info = info;
+				fileitem.name = nameText(info);
+				fileitem.path = info.path;
+				if (info.isdir) {
+					fileitem.size = -1;
+					fileitem.type = "<DIR>";
+					if (fileitem.path == select_location) {
+						select_row = model->items.size();
+					}
+				} else {
+					fileitem.size = info.size;
+					fileitem.type = typeText(info);
+				}
+				fileitem.modified = info.modified;
+				model->items.push_back(fileitem);
+			}
+		} else if (loc.kind == Kind::ChromeBookmark) {
+			auto it = m->bookmark_items.find(loc.path);
+			if (it == m->bookmark_items.end()) return;
+			QList<BookmarkInfo> const &items = it->second;
+			for (int row = 0; row < items.size(); row++) {
+				FileItemModel::Item fileitem;
+				BookmarkInfo const &info = items[row];
+				fileitem.name = info.name;
+				fileitem.path = info.url;
+				fileitem.icon_ = info.url.endsWith(" /") ? m->default_folder_icon : m->default_file_icon;
+				model->items.push_back(fileitem);
+			}
+		}
+	}
+
+	m->file_item_model.setKind(loc.kind);
+	ui->tableView->reset();
+	ui->tableView->setKind(loc.kind);
+	ui->thumbnailView->setKind(loc.kind);
+	ui->tableView->setLocation(loc.path);
+	ui->thumbnailView->setLocation(loc.path);
+
+	int n = model->rowCount();
+	setStatusBarText(QString("%1 items").arg(n));
+
+	//
+
+	switch (viewmode()) {
+	case List:
+		ui->tableView->selectRow(select_row);
+		break;
+	case Thumbnail:
+		ui->thumbnailView->selectRow(select_row);
+		break;
+	}
+}
+
 void MainWindow::updateFileView()
 {
 	auto item = ui->treeView->currentItem();
@@ -675,24 +786,30 @@ bool MainWindow::isIncrementalSearching() const
  * @brief フィルタ文字列を設定する
  * @param text
  */
-void MainWindow::setIncrementalSearchText(QString const &text, int repo_list_select_row)
+void MainWindow::setIncrementalSearchText(QString const &text)
 {
 	// qDebug() << text;
 	FilterTarget ft = filtertarget();
 	
 	if (!isIncrementalSearching() && !text.isEmpty()) {
-		if (ft == FilterTarget::RepositorySearch) {
+		if (ft == FilterTarget::FolderTreeSearch) {
 			// nop
-		} else if (ft == FilterTarget::CommitLogSearch) {
+		} else if (ft == FilterTarget::FileListSearch) {
 			// m->before_search_row = ui->tableWidget_log->currentRow();
 		}
 	}
 	
 	global->incremental_search_text = text;
 	
-	if (ft == FilterTarget::RepositorySearch) {
+	if (ft == FilterTarget::FolderTreeSearch) {
+		ui->treeView->setFilter(text);
 		// updateRepositoryList(RepositoryTreeWidget::RepositoryListStyle::Standard, repo_list_select_row, global->incremental_search_text);
-	} else if (ft == FilterTarget::CommitLogSearch) {
+	} else if (ft == FilterTarget::FileListSearch) {
+		ui->tableView->setFilter(text);
+		ui->thumbnailView->setFilter(text);
+		// if (focusWidget() == ui->tableView) {
+		// }
+		updateFileView();
 		// ui->tableWidget_log->setFilter(global->incremental_search_text.toStdString());
 	}
 }
@@ -735,9 +852,9 @@ bool MainWindow::applyFilter()
 	if (getIncrementalSearchText().isEmpty()) return false;
 	
 	auto ft = filtertarget();
-	if (ft == FilterTarget::RepositorySearch) {
+	if (ft == FilterTarget::FolderTreeSearch) {
 		
-	} else if (ft == FilterTarget::CommitLogSearch) {
+	} else if (ft == FilterTarget::FileListSearch) {
 		// int row = ui->tableWidget_log->currentRow();
 		// int index = ui->tableWidget_log->unfilteredIndex(row);
 		
@@ -752,7 +869,7 @@ bool MainWindow::applyFilter()
 
 void MainWindow::clearFilterText()
 {
-	global->incremental_search_text = QString();
+	setIncrementalSearchText({});
 }
 
 /**
@@ -793,9 +910,9 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			auto AppendCharToFilterText = [&](){
 				FilterTarget target;
 				if (watched == ui->treeView) {
-					target = FilterTarget::RepositorySearch;
+					target = FilterTarget::FolderTreeSearch;
 				} else if (watched == ui->tableView) {
-					target = FilterTarget::CommitLogSearch;
+					target = FilterTarget::FileListSearch;
 				} else {
 					return false;
 				}
@@ -821,7 +938,12 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 								return true; // suppress tree collapse
 							}
 						}
-					} else if (AppendCharToFilterText()) {
+					}
+				}
+			}
+			if (focusWidget() == ui->treeView || focusWidget() == ui->tableView || focusWidget() == ui->thumbnailView) {
+				if (!ctrl) {
+					if (AppendCharToFilterText()) {
 						return true;
 					}
 				}
@@ -1072,112 +1194,6 @@ QIcon MainWindow::getIcon(const FileInfo2 &info)
 void MainWindow::onRefreshFileListDone(LocationData const &loc)
 {
 	refreshFileList2(loc, false);
-}
-
-void MainWindow::refreshFileList2(LocationData const &loc, bool force)
-{
-	QString select_location = m->last_location;
-	int select_row = 0;
-
-	m->last_location = loc.path; // update current location
-
-	{
-		int i = m->fetch_location_threads.size();
-		while (i > 0) {
-			i--;
-			auto t = m->fetch_location_threads[i];
-			if (!t->isRunning()) {
-				m->fetch_location_threads.erase(m->fetch_location_threads.begin() + i);
-			}
-		}
-	}
-
-	ui->tableView->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
-	ui->tableView->verticalHeader()->setDefaultSectionSize(20);
-
-	if (!force) {
-		if (loc != m->current_location) return;
-	}
-
-	auto *model = fileitemmodel();
-
-
-	QElapsedTimer t;
-	t.start();
-
-	{
-		struct DeferResetModel {
-			FileItemModel *model;
-			DeferResetModel(FileItemModel *model)
-				: model(model)
-			{
-				model->beginResetModel();
-			}
-			~DeferResetModel() {
-				model->endResetModel();
-			}
-		};
-
-		DeferResetModel defer1(model);
-
-		model->items.clear();
-
-		if (loc.isDir()) {
-			for (int row = 0; row < loc.files.size(); row++) {
-				FileInfo2 const &info = loc.files[row];
-				if (!m->hidden_files_visible && info.ishidden) continue;
-				FileItemModel::Item fileitem;
-				fileitem.info = info;
-				fileitem.name = nameText(info);
-				fileitem.path = info.path;
-				if (info.isdir) {
-					fileitem.size = -1;
-					fileitem.type = "<DIR>";
-					if (fileitem.path == select_location) {
-						select_row = model->items.size();
-					}
-				} else {
-					fileitem.size = info.size;
-					fileitem.type = typeText(info);
-				}
-				fileitem.modified = info.modified;
-				model->items.push_back(fileitem);
-			}
-		} else if (loc.kind == Kind::ChromeBookmark) {
-			auto it = m->bookmark_items.find(loc.path);
-			if (it == m->bookmark_items.end()) return;
-			QList<BookmarkInfo> const &items = it->second;
-			for (int row = 0; row < items.size(); row++) {
-				FileItemModel::Item fileitem;
-				BookmarkInfo const &info = items[row];
-				fileitem.name = info.name;
-				fileitem.path = info.url;
-				fileitem.icon_ = info.url.endsWith(" /") ? m->default_folder_icon : m->default_file_icon;
-				model->items.push_back(fileitem);
-			}
-		}
-	}
-
-	m->file_item_model.setKind(loc.kind);
-	ui->tableView->reset();
-	ui->tableView->setKind(loc.kind);
-	ui->thumbnailView->setKind(loc.kind);
-	ui->tableView->setLocation(loc.path);
-	ui->thumbnailView->setLocation(loc.path);
-
-	int n = model->rowCount();
-	setStatusBarText(QString("%1 items").arg(n));
-
-	//
-
-	switch (viewmode()) {
-	case List:
-		ui->tableView->selectRow(select_row);
-		break;
-	case Thumbnail:
-		ui->thumbnailView->selectRow(select_row);
-		break;
-	}
 }
 
 QString MainWindow::currentLocation()

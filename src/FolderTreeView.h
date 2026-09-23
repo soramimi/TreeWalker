@@ -6,10 +6,13 @@
 #include <QTreeView>
 #include <memory>
 
+#include <subprojects/IncrementalSearchPlugin/src/IncrementalSearch.h>
+
 class FolderTreeModel;
 
 class FolderTreeItem {
 	friend class FolderTreeModel;
+	friend class FolderTreeView;
 private:
 	FolderTreeModel *model_ = nullptr;
 	QString text_;
@@ -66,9 +69,14 @@ public:
 
 class FolderTreeView : public QTreeView {
 	Q_OBJECT
+	friend class FolderTreeItemDelegate;
 private:
 	struct Private;
 	Private *m;
+
+	IncrementalSearchFilter makeIncrementalSearchFilter() const;
+	
+	void _set_filter(const QString &filter_text);
 protected:
 	void beginResetModel();
 	void endResetModel();
@@ -93,6 +101,8 @@ public:
 	bool isExpanded(FolderTreeItem *item) const;
 	void setExpanded(FolderTreeItem *item, bool f);
 
+	void setFilter(QString const &filter_text);
+	
 protected slots:
 	void currentChanged(const QModelIndex &current, const QModelIndex &previous);
 private slots:

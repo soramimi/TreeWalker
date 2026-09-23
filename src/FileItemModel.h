@@ -44,6 +44,12 @@ public:
 	QList<Item> items;
 	Kind kind_ = Kind::File;
 public:
+	mutable std::optional<int> filtered_items_;
+	bool isFiltered() const
+	{
+		return filtered_items_ != std::nullopt;
+	}
+public:
 	FileItemModel(QWidget *parent = nullptr);
 	virtual ~FileItemModel() = default;
 	void setKind(Kind kind);

@@ -17,6 +17,11 @@ private:
 	Private *m;
 
 	QImage queryThubmanil(const QString &text);
+	void _set_filter(const QString &filter_text);
+protected:
+	void beginResetModel();
+	void endResetModel();
+	
 public:
 	FileItemModel *model();
 	FileItemModel const *model() const;
@@ -29,6 +34,8 @@ public:
 	QString currentPath() const;
 	void selectRow(int row);
 	void setLocation(QString const &path);
+
+	void setFilter(const QString &filter_text);
 };
 
 #endif // THUMBNAILVIEW_H

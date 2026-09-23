@@ -77,7 +77,7 @@ void drawText_filtered(QPainter *painter, const QStyleOptionViewItem &opt, const
 			r.setLeft(x);
 			r.setWidth(w);
 			if (part.match) { // フィルターの部分の背景をハイライト
-				painter->fillRect(r, incrementalsearch::filtered_bg_color());
+				painter->fillRect(r, incrementalsearch::highlight_bg_color());
 			}
 			drawText(painter, opt, r, s);
 			x += w;

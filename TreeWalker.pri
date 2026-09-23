@@ -8,6 +8,8 @@ INCLUDEPATH += $$PWD/src
 # INCLUDEPATH += $$PWD/UGlobalHotkey/lib
 INCLUDEPATH += $$PWD/../QtDarkStyle
 
+INCLUDEPATH += $$PWD/subproject/IncrementalSearchPlugin/src/
+
 win32:LIBS += -lcomctl32 -luser32 -lole32 -lgdi32
 
 SOURCES += \
@@ -36,6 +38,7 @@ SOURCES += \
 	$$PWD/src/common/q/Dir.cpp \
 	$$PWD/src/common/q/DirIterator.cpp \
 	$$PWD/src/common/q/FileInfo.cpp \
+	$$PWD/subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.cpp \
 	src/AbstractFileSystemProvider.cpp \
 	src/AbstractSettingForm.cpp \
 	src/ApplicationGlobal.cpp \
@@ -95,8 +98,7 @@ HEADERS += \
 	$$PWD/src/common/q/FileInfo.h \
 	$$PWD/src/common/q/helper.h \
 	$$PWD/src/xdg.h \
-	$$PWD/subproject/FileTypePlugin/src/FileTypeInterface.h \
-	$$PWD/subproject/IncrementalSearchPlugin/src/IncrementalSearchInterface.h \
+	$$PWD/subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h \
 	MyTreeWidget.h \
 	src/AbstractFileSystemProvider.h \
 	src/AbstractSettingForm.h \

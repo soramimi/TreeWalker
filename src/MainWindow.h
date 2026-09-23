@@ -67,8 +67,8 @@ private:
 	};
 	
 	enum class FilterTarget {
-		RepositorySearch,
-		CommitLogSearch,
+		FolderTreeSearch,
+		FileListSearch,
 	};
 	
 	ViewMode viewmode() const;
@@ -100,7 +100,7 @@ private slots:
 	void on_tableView_customContextMenuRequested(const QPoint &pos);
 	void on_treeView_currentItemChanged(FolderTreeItem *current, FolderTreeItem *previous);
 private:
-	void updateFileView();
+        void updateFileView();
 	void updateViews();
 private:
 	Ui::MainWindow *ui;
@@ -153,7 +153,7 @@ private:
 	
 	bool appendCharToFilterText(const QString &add, MainWindow::FilterTarget ft);
 	QString getIncrementalSearchText() const;
-	void setIncrementalSearchText(const QString &text, int repo_list_select_row = -1);
+        void setIncrementalSearchText(const QString &text);
 	MainWindow::FilterTarget filtertarget() const;
 	void updateStatusBarText();
 	
