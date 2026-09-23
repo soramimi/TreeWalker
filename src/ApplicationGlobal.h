@@ -7,6 +7,10 @@
 #include <QImage>
 #include <QString>
 
+#include <subprojects/IncrementalSearchPlugin/src/IncrementalSearch.h>
+
+#include <subprojects/FileTypePlugin/src/FileType.h>
+
 class QApplication;
 class MainWindow;
 
@@ -37,7 +41,18 @@ struct ApplicationGlobal {
 #ifdef Q_OS_WIN
 	std::shared_ptr<WindowsShellAPI> shapi;
 #endif
-
+	
+	std::shared_ptr<IncrementalSearch> incremental_search;
+	IncrementalSearchFilter makeIncrementalSearchFilter(const std::string &filtertext);
+	QString incremental_search_text;
+	
+	std::shared_ptr<FileType> file_type_detector;
+	std::string mimetype_by_data(const char *data, size_t size);
+	std::string mimetype_by_data(const QByteArray &ba);
+	std::string mimetype_by_data(std::vector<char> const &ba);
+	std::string mimetype_by_file(const char *path);
+	std::string mimetype_by_file(std::string const &path);
+	
 };
 
 extern ApplicationGlobal *global;

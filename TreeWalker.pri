@@ -14,7 +14,9 @@ SOURCES += \
 	$$PWD/src/FileItemModel.cpp \
 	$$PWD/src/FileTableView.cpp \
 	$$PWD/src/FolderTreeView.cpp \
+	$$PWD/src/IncrementalSearchHelper.cpp \
 	$$PWD/src/ItemIdList.cpp \
+	$$PWD/src/LoadPlugin.cpp \
 	$$PWD/src/MyListWidget.cpp \
 	$$PWD/src/ThumbnailLoader.cpp \
 	$$PWD/src/ThumbnailView.cpp \
@@ -59,7 +61,9 @@ HEADERS += \
 	$$PWD/src/FileItemModel.h \
 	$$PWD/src/FileTableView.h \
 	$$PWD/src/FolderTreeView.h \
+	$$PWD/src/IncrementalSearchHelper.h \
 	$$PWD/src/ItemIdList.h \
+	$$PWD/src/LoadPlugin.h \
 	$$PWD/src/MyListWidget.h \
 	$$PWD/src/ThumbnailLoader.h \
 	$$PWD/src/ThumbnailView.h \
@@ -91,6 +95,8 @@ HEADERS += \
 	$$PWD/src/common/q/FileInfo.h \
 	$$PWD/src/common/q/helper.h \
 	$$PWD/src/xdg.h \
+	$$PWD/subproject/FileTypePlugin/src/FileTypeInterface.h \
+	$$PWD/subproject/IncrementalSearchPlugin/src/IncrementalSearchInterface.h \
 	MyTreeWidget.h \
 	src/AbstractFileSystemProvider.h \
 	src/AbstractSettingForm.h \

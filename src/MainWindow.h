@@ -65,7 +65,12 @@ private:
 		List,
 		Thumbnail,
 	};
-
+	
+	enum class FilterTarget {
+		RepositorySearch,
+		CommitLogSearch,
+	};
+	
 	ViewMode viewmode() const;
 	void setViewMode(ViewMode mode);
 
@@ -145,6 +150,17 @@ private:
 	bool hasSubDir(AbstractFileSystemProvider *fs, const ItemIdList &iidl);
 	void addPlaceholder(FolderTreeItem *item);
 	void updateCurrentFolder();
+	
+	bool appendCharToFilterText(const QString &add, MainWindow::FilterTarget ft);
+	QString getIncrementalSearchText() const;
+	void setIncrementalSearchText(const QString &text, int repo_list_select_row = -1);
+	MainWindow::FilterTarget filtertarget() const;
+	void updateStatusBarText();
+	
+	bool isIncrementalSearching() const;
+	void clearAllFilters();
+	bool applyFilter();
+	void clearFilterText();
 protected:
 	bool acceptKeyEvent(QKeyEvent *event);
 	bool eventFilter(QObject *watched, QEvent *event);

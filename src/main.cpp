@@ -9,6 +9,9 @@
 #include "joinpath.h"
 #include "ApplicationGlobal.h"
 #include "Theme.h"
+#include "../subprojects/FileTypePlugin/src/FileTypeInterface.h"
+#include "../subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
+#include "LoadPlugin.h"
 
 class MyStyle : public QProxyStyle {
 private:
@@ -98,7 +101,15 @@ int main(int argc, char *argv[])
 	global->config_file_path = joinpath(global->app_config_dir, global->application_name + ".ini");
 
 	MyApplication a(argc, argv);
-
+	
+	// load plugins
+	{
+		global->file_type_detector = loadPlugin<FileType, FileTypeInterface>("filetypeplugin"); // file type detector plugin
+		global->incremental_search = loadPlugin<IncrementalSearch, IncrementalSearchInterface>("incrementalsearchplugin"); // incremental search plugin
+		if (!global->file_type_detector) exit(1);
+		if (!global->incremental_search) exit(1);
+	}
+	
 	qRegisterMetaType<LocationData>("LocationData");
 	qRegisterMetaType<ItemIdList>("ItemIdList");
 

@@ -23,6 +23,7 @@
 #include "common/str.h"
 #include "common/misc.h"
 #include "common/q/helper.h""
+#include "IncrementalSearchHelper.h"
 
 #ifdef Q_OS_WIN
 #include "NetworkDiscoveryThread.h"
@@ -100,6 +101,9 @@ struct MainWindow::Private {
 #ifdef Q_OS_WIN
 	NetworkDiscoveryThread network_discovery_thread;
 #endif
+	
+	MainWindow::FilterTarget filter_target = MainWindow::FilterTarget::RepositorySearch;
+	StatusLabel *status_bar_label;
 };
 
 static QString getDisplayName(FileInfo2 const &info)
@@ -121,7 +125,11 @@ MainWindow::MainWindow(QWidget *parent)
 	, ui(new Ui::MainWindow)
 {
 	ui->setupUi(this);
-
+	
+	m->status_bar_label = new StatusLabel(this);
+	m->status_bar_label->setAlignment((Qt::Alignment)Qt::TextSingleLine);
+	ui->statusBar->addWidget(m->status_bar_label);
+	
 	qApp->installEventFilter(this);
 	
 	m->status_label = new StatusLabel(this);
@@ -648,22 +656,177 @@ void MainWindow::updateCurrentFolder()
 	fetchSubFolders(item, false);
 }
 
+/**
+ * @brief フィルタ文字列を取得する
+ * @return
+ */
+QString MainWindow::getIncrementalSearchText() const
+{
+	return global->incremental_search_text;
+}
+
+bool MainWindow::isIncrementalSearching() const
+{
+	return !global->incremental_search_text.isEmpty();
+}
+
+
+/**
+ * @brief フィルタ文字列を設定する
+ * @param text
+ */
+void MainWindow::setIncrementalSearchText(QString const &text, int repo_list_select_row)
+{
+	// qDebug() << text;
+	FilterTarget ft = filtertarget();
+	
+	if (!isIncrementalSearching() && !text.isEmpty()) {
+		if (ft == FilterTarget::RepositorySearch) {
+			// nop
+		} else if (ft == FilterTarget::CommitLogSearch) {
+			// m->before_search_row = ui->tableWidget_log->currentRow();
+		}
+	}
+	
+	global->incremental_search_text = text;
+	
+	if (ft == FilterTarget::RepositorySearch) {
+		// updateRepositoryList(RepositoryTreeWidget::RepositoryListStyle::Standard, repo_list_select_row, global->incremental_search_text);
+	} else if (ft == FilterTarget::CommitLogSearch) {
+		// ui->tableWidget_log->setFilter(global->incremental_search_text.toStdString());
+	}
+}
+
+MainWindow::FilterTarget MainWindow::filtertarget() const
+{
+	return m->filter_target;
+}
+
+void MainWindow::updateStatusBarText()
+{
+	QString msg_text;
+	QString search_text = getIncrementalSearchText();
+	if (search_text.isEmpty()) {
+		m->status_bar_label->setText({});
+	} else {
+		QColor color = incrementalsearch::highlight_bg_color();
+		QString s = color.name(QColor::HexRgb);
+		msg_text = QString("<div style='background: %1;'>%2: <b>%3</b>&nbsp;</div>")
+					   .arg(s)
+					   .arg(tr("Search"))
+					   .arg(search_text.toHtmlEscaped());
+		// msg_format = Qt::TextFormat::RichText;
+		m->status_bar_label->setTextFormat(Qt::TextFormat::RichText);
+		m->status_bar_label->setText(msg_text);
+		m->status_bar_label->show();
+	}
+}
+
+void MainWindow::clearAllFilters()
+{
+	if (!isIncrementalSearching()) return;
+	
+	clearFilterText();
+	updateStatusBarText();
+}
+
+bool MainWindow::applyFilter()
+{
+	if (getIncrementalSearchText().isEmpty()) return false;
+	
+	auto ft = filtertarget();
+	if (ft == FilterTarget::RepositorySearch) {
+		
+	} else if (ft == FilterTarget::CommitLogSearch) {
+		// int row = ui->tableWidget_log->currentRow();
+		// int index = ui->tableWidget_log->unfilteredIndex(row);
+		
+		clearAllFilters();
+		
+		// ui->tableWidget_log->setCurrentRow(index);
+		// ui->tableWidget_log->setFocus();
+	}
+	
+	return true;
+}
+
+void MainWindow::clearFilterText()
+{
+	global->incremental_search_text = QString();
+}
+
+/**
+ * @brief フィルタに文字を追加する
+ * @return
+ */
+bool MainWindow::appendCharToFilterText(QString const &add, MainWindow::FilterTarget ft)
+{
+	if (add.isEmpty()) return false;
+	
+	QString filter = getIncrementalSearchText();
+	QString newfilter = incrementalsearch::appendCharToFilterText(filter, add);
+	if (newfilter == filter) return false; // if no change, nothing to do
+	
+	m->filter_target = ft;
+	// if (isPtyProcessRunning()) {
+	// 	// ignore but return true
+	// } else {
+		setIncrementalSearchText(newfilter);
+	// }
+	updateStatusBarText();
+	return true;
+}
+
 bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 {
 	if (event->type() == QEvent::KeyPress) {
-		QKeyEvent *ke = (QKeyEvent *)event;
-		if (focusWidget() == ui->treeView) {
-			if (ke->key() == '*') {
-				updateCurrentFolder();
-				return true; // suppress tree expansion
+		if (QApplication::activeModalWidget()) {
+			// thru
+		} else {
+			QKeyEvent *e = (QKeyEvent *)event;
+			const int k = e->key();
+			const bool alt = (e->modifiers() & Qt::AltModifier);
+			const bool ctrl = (e->modifiers() & Qt::ControlModifier);
+			const bool shift = (e->modifiers() & Qt::ShiftModifier);
+			const bool enter = (k == Qt::Key_Enter || k == Qt::Key_Return);
+			
+			auto AppendCharToFilterText = [&](){
+				FilterTarget target;
+				if (watched == ui->treeView) {
+					target = FilterTarget::RepositorySearch;
+				} else if (watched == ui->tableView) {
+					target = FilterTarget::CommitLogSearch;
+				} else {
+					return false;
+				}
+				QString text = e->text();
+				return !(alt || ctrl) && appendCharToFilterText(text, target);
+			};
+			
+			if (k == Qt::Key_Escape) {
+				clearAllFilters();
+				return true;
 			}
-			if (ke->key() == Qt::Key_Left || ke->key() == Qt::Key_Enter || ke->key() == Qt::Key_Return) {
-				if (ui->treeView->currentItem() == m->my_computer_item) {
-					if (ui->treeView->isExpanded(m->my_computer_item)) {
-						return true; // suppress tree collapse
+			if (focusWidget() == ui->treeView) {
+				if (ctrl) {
+					//
+				} else {
+					if (e->key() == '*') {
+						updateCurrentFolder();
+						return true; // suppress tree expansion
+					}
+					if (e->key() == Qt::Key_Left || e->key() == Qt::Key_Enter || e->key() == Qt::Key_Return) {
+						if (ui->treeView->currentItem() == m->my_computer_item) {
+							if (ui->treeView->isExpanded(m->my_computer_item)) {
+								return true; // suppress tree collapse
+							}
+						}
+					} else if (AppendCharToFilterText()) {
+						return true;
 					}
 				}
 			}
+			
 		}
 	}
 	return QMainWindow::eventFilter(watched, event);
