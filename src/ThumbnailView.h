@@ -11,6 +11,7 @@ class ThumbnailViewDelegate;
 
 class ThumbnailView : public QListView {
 	Q_OBJECT
+	friend class MainWindow;
 	friend class ThumbnailViewDelegate;
 private:
 	struct Private;
@@ -21,7 +22,7 @@ private:
 protected:
 	void beginResetModel();
 	void endResetModel();
-	
+	IncrementalSearchFilter const &filter() const;
 public:
 	FileItemModel *model();
 	FileItemModel const *model() const;
@@ -35,7 +36,13 @@ public:
 	void selectRow(int row);
 	void setLocation(QString const &path);
 
-	void setFilter(const QString &filter_text);
+	void selectFirstItem();
+	
+	// void setFilter(const QString &filter_text);
+	
+	// QWidget interface
+protected:
+	void paintEvent(QPaintEvent *event);
 };
 
 #endif // THUMBNAILVIEW_H

@@ -58,33 +58,29 @@ void drawText(QPainter *painter, const QStyleOptionViewItem &opt, QRect r, const
 	painter->drawText(r, opt.displayAlignment, text); // テキストを描画
 }
 
-void drawText_filtered(QPainter *painter, const QStyleOptionViewItem &opt, const QRect &rect, IncrementalSearchFilter const &filter)
+void drawText_filtered(QPainter *painter, const QStyleOptionViewItem &opt, const QRect &rect, QString const &text, IncrementalSearchFilter const *filter)
 {
-	if (!filter) {
-		drawText(painter, opt, rect, opt.text);
-		return;
-	}
-
-	QString text = opt.text;
-
-	Result match = global->incremental_search->match(text.toStdString(), filter);
-	if (match) {
-		int x = rect.x();
-		for (Result::Part const &part : match.parts) {
-			QString s = QString::fromStdString(part.text);
-			int w = painter->fontMetrics().horizontalAdvance(s);
-			QRect r = rect;
-			r.setLeft(x);
-			r.setWidth(w);
-			if (part.match) { // フィルターの部分の背景をハイライト
-				painter->fillRect(r, incrementalsearch::highlight_bg_color());
+	if (filter && *filter) {
+		Result match = global->incremental_search->match(text.toStdString(), *filter);
+		if (match) {
+			int x = rect.x();
+			for (Result::Part const &part : match.parts) {
+				QString s = QString::fromStdString(part.text);
+				int w = painter->fontMetrics().horizontalAdvance(s);
+				QRect r = rect;
+				r.setLeft(x);
+				r.setWidth(w);
+				if (part.match) { // フィルターの部分の背景をハイライト
+					painter->fillRect(r, incrementalsearch::highlight_bg_color());
+				}
+				drawText(painter, opt, r, s);
+				x += w;
 			}
-			drawText(painter, opt, r, s);
-			x += w;
+			return;
 		}
-	} else {
-		drawText(painter, opt, rect, text);
 	}
+
+	drawText(painter, opt, rect, text);
 }
 
 void fillFilteredBG(QPainter *painter, const QRect &rect)

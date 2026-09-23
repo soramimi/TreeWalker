@@ -74,9 +74,10 @@ private:
 	struct Private;
 	Private *m;
 
-	IncrementalSearchFilter makeIncrementalSearchFilter() const;
+	// IncrementalSearchFilter makeIncrementalSearchFilter() const;
 	
 	void _set_filter(const QString &filter_text);
+	const IncrementalSearchFilter &filter() const;
 protected:
 	void beginResetModel();
 	void endResetModel();
@@ -110,6 +111,10 @@ private slots:
 signals:
 	void currentItemChanged(FolderTreeItem *current, FolderTreeItem *previous);
 	void expanded(FolderTreeItem *item);
+	
+	// QWidget interface
+protected:
+	void paintEvent(QPaintEvent *event);
 };
 
 #endif // FOLDERTREEVIEW_H

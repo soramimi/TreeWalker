@@ -5,7 +5,6 @@
 FileItemModel::FileItemModel(QWidget *parent)
 	: QAbstractItemModel(parent)
 {
-
 }
 
 void FileItemModel::setKind(Kind kind)
@@ -23,9 +22,77 @@ QModelIndex FileItemModel::parent(const QModelIndex &child) const
 	return QModelIndex();
 }
 
+void FileItemModel::updateIndices()
+{
+	indices_.clear();
+	if (isFiltered()) {
+		indices_.reserve(items_.size());
+		for (size_t i = 0; i < items_.size(); i++) {
+			Item const &item = items_[i];
+			if (global->incremental_search->match(item.name.toStdString(), filter_)) {
+				indices_.push_back(i);
+			}
+		}
+	} else {
+		indices_.resize(items_.size());
+		std::iota(indices_.begin(), indices_.end(), 0);
+	}
+}
+
+int FileItemModel::count() const
+{
+	if (indices_.empty()) {
+		const_cast<FileItemModel *>(this)->updateIndices();
+	}
+	return indices_.size();
+}
+
+FileItemModel::Item *FileItemModel::item(int row)
+{
+	size_t index = indices_[row];
+	return &items_[index];
+}
+
+FileItemModel::Item const *FileItemModel::item(int row) const
+{
+	return const_cast<FileItemModel *>(this)->item(row);
+}
+
+void FileItemModel::clearItems()
+{
+	items_.clear();
+	indices_.clear();
+}
+
+void FileItemModel::addItem(Item &&item)
+{
+	items_.push_back(std::move(item));
+	indices_.clear();
+}
+
+IncrementalSearchFilter const &FileItemModel::filter() const
+{
+	return filter_;
+}
+
+bool FileItemModel::isFiltered() const
+{
+	return (bool)filter();
+}
+
+void FileItemModel::setFilterText(const QString &filter_text)
+{
+	beginResetModel();
+	{
+		filter_ = global->incremental_search->makeFilter(filter_text.toStdString());
+		indices_.clear();
+	}
+	endResetModel();
+}
+
 int FileItemModel::rowCount(const QModelIndex &parent) const
 {
-	return items.size();
+	return count();
 }
 
 int FileItemModel::columnCount(const QModelIndex &parent) const
@@ -51,7 +118,7 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 {
 
 	int row = index.row();
-	if (row >= 0 && row < items.size()) {
+	if (row >= 0 && row < count()) {
 		int col = index.column();
 		QString text;
 		switch (role) {
@@ -59,18 +126,18 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 			if (kind_ == Kind::ChromeBookmark) {
 				switch (col) {
 				case 0:
-					return items[row].name;
+					return item(row)->name;
 				case 1:
-					return items[row].path;
+					return item(row)->path;
 				}
 			} else {
 				switch (col) {
 				case 0:
-					text = items[row].name;
+					text = item(row)->name;
 					break;
 				case 1:
 					{
-						text = (items[row].size == -1) ? QString() : QString::number(items[row].size);
+						text = (item(row)->size == -1) ? QString() : QString::number(item(row)->size);
 						int i = text.size();
 						while (i > 3) {
 							i -= 3;
@@ -79,26 +146,25 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 					}
 					break;
 				case 2:
-					text = items[row].type;
+					text = item(row)->type;
 					break;
 				case 3:
-					text = modifiedText(items[row].modified);
+					text = modifiedText(item(row)->modified);
 					break;
 				}
 			}
 			return text;
 		case Qt::DecorationRole:
 			if (col == 0) {
-				return global->mainwindow->getIcon(items[row].info);
-				// return items[row].icon;
+				return global->mainwindow->getIcon(item(row)->info);
 			}
 			break;
 		case Qt::SizeHintRole:
 			return QSize(128, 128);
 		case PathRole:
-			return items[row].path;
+			return item(row)->path;
 		case UrlRole:
-			return items[row].path;
+			return item(row)->path;
 			break;
 		case IidlRole:
 			break;
@@ -138,9 +204,9 @@ QVariant FileItemModel::headerData(int section, Qt::Orientation orientation, int
 const FileInfo2 *FileItemModel::fileinfo(const QModelIndex &index) const
 {
 	int row = index.row();
-	if (row >= 0 && row < items.size()) {
+	if (row >= 0 && row < count()) {
 		int col = index.column();
-		return &items[row].info;
+		return &item(row)->info;
 	}
 	return nullptr;
 }

@@ -563,6 +563,6 @@ void WindowsShellAPI::test()
 
 	CoUninitialize();
 
-	qDebug() << ret.width() << ret.height();
+	// qDebug() << ret.width() << ret.height();
 }
 

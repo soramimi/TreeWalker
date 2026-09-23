@@ -6,17 +6,7 @@
 #include <QStyledItemDelegate>
 #include <QTextDocument>
 #include "darktheme/MyCommonStyle.h"
-
-#if 0
-class ThumbnailListModel : public QAbstractListModel {
-public:
-	ThumbnailListModel(QObject *parent);
-	int rowCount(const QModelIndex &parent) const;
-	QVariant data(const QModelIndex &index, int role) const;
-};
-#endif
-
-//
+#include <IncrementalSearchHelper.h>
 
 class ThumbnailViewDelegate : public QStyledItemDelegate {
 public:
@@ -30,8 +20,16 @@ public:
 	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
 	{
 		ThumbnailView *widget = qobject_cast<ThumbnailView *>(parent());
-		QStyle *s = qApp->style();
 
+		QColor filtered_bg_color = incrementalsearch::filtered_bg_color();
+		QColor highlight_bg_color = incrementalsearch::highlight_bg_color();
+		
+		IncrementalSearchFilter const *filter = &widget->filter();
+		// if (filter && *filter) {
+		// 	painter->fillRect(option.rect, filtered_bg_color);
+		
+		// }
+		
 		FileInfo2 const *fileinfo = widget->model()->fileinfo(index);
 		Q_ASSERT(fileinfo);
 
@@ -78,6 +76,7 @@ public:
 		o2.state &= ~QStyle::State_Selected;
 		o2.text = QString();
 
+	
 		int x = o2.rect.x() + 4;
 		int y = o2.rect.y() + 4;
 		int w = o2.rect.width() - 8;
@@ -96,7 +95,8 @@ public:
 				pr.fillRect(r.adjusted(-1, -1, 1, 1), Qt::black);
 				pr.fillRect(r.adjusted(1, 1, -1, -1), Qt::white);
 				pr.setPen(Qt::black);
-				pr.drawText(r, Qt::AlignCenter, ext);
+				// pr.drawText(r, Qt::AlignCenter, ext);
+				incrementalsearch::drawText_filtered(&pr, o2, r, ext, filter);
 			}
 			icon = QIcon(pm);
 		} else {
@@ -125,10 +125,31 @@ public:
 			strong_suffix = true;
 		}
 
+		QString text = name;
+		if (filter && *filter) {
+			incrementalsearch::Result match = global->incremental_search->match(text.toStdString(), *filter);
+			if (match) {
+				for (auto it = match.parts.rbegin(); it != match.parts.rend(); ++it) {
+					if (it->match) {
+						text.insert(it->pos + it->text.size(), "//>//");
+						text.insert(it->pos, "//<//");
+					}
+				}
+			}
+		}
+
 		{
 			QTextDocument doc;
-			QString html = "<center>";
-			html += name.toHtmlEscaped();
+			QString html = text.toHtmlEscaped();
+			if (filter && *filter) {
+				QString bgcolor = QString::asprintf("#%02x%02x%02x"
+													, highlight_bg_color.red()
+													, highlight_bg_color.green()
+													, highlight_bg_color.blue());
+				html.replace("//&gt;//", "</span>");
+				html.replace("//&lt;//", QString("<span style='background-color: %1;'>").arg(bgcolor));
+			}
+			html = "<center>" + html;
 			if (strong_suffix && !suffix.isEmpty()) {
 				html += "<b>" + suffix.toHtmlEscaped() + "</b>";
 			}
@@ -150,14 +171,12 @@ public:
 
 
 struct ThumbnailView::Private {
-	// FileItemModel model;
 	ThumbnailViewDelegate item_delegate;
-	IncrementalSearchFilter filter;
+	// IncrementalSearchFilter filter;
 };
 
 FileItemModel *ThumbnailView::model()
 {
-	// return &m->model;
 	return global->mainwindow->fileitemmodel();
 }
 
@@ -213,6 +232,12 @@ void ThumbnailView::endResetModel()
 	model()->endResetModel();
 }
 
+const IncrementalSearchFilter &ThumbnailView::filter() const
+{
+	// return m->filter;
+	return model()->filter();
+}
+
 void ThumbnailView::setKind(Kind kind)
 {
 	m->item_delegate.kind_ = kind;
@@ -248,41 +273,34 @@ void ThumbnailView::setLocation(const QString &path)
 	m->item_delegate.setLocation(path);	
 }
 
+void ThumbnailView::selectFirstItem()
+{
+	setCurrentIndex(model()->index(0, 0));
+}
+
+void ThumbnailView::paintEvent(QPaintEvent *event)
+{
+	IncrementalSearchFilter const *f = &filter();
+	if (f && *f) {
+		QPainter pr(viewport());
+		QColor filtered_bg_color = incrementalsearch::filtered_bg_color();
+		pr.fillRect(rect(), filtered_bg_color);
+	}
+
+	QListView::paintEvent(event);
+}
+
 void ThumbnailView::_set_filter(QString const &filter_text)
 {
-	model()->filtered_items_ = std::nullopt; // reset filtered items
-	m->filter = {};
-	if (!filter_text.isEmpty()) {
-		if (global->incremental_search) {
-#if 0
-			m->filter = global->incremental_search->makeFilter(filter_text.toStdString());
-
-			std::vector<FolderTreeItem *> items;
-			auto AddItem = [&](auto recursive, FolderTreeItem *item)-> void {
-				if (global->incremental_search->match(item->text().toStdString(), m->filter)) {
-					qDebug() << item->text();
-					if (!item->text().isEmpty()) {
-						items.push_back(item);
-					}
-				}
-				for (FolderTreeItem *child : *item->children()) {
-					recursive(recursive, child);
-				}
-			};
-			AddItem(AddItem, const_cast<FolderTreeItem *>(&model()->top_level_items_));
-			m->model.filtered_items_ = std::move(items);		
-#endif
-		}
-	}
+	model()->setFilterText(filter_text);
 }
 
-
-void ThumbnailView::setFilter(const QString &filter_text)
-{
-	beginResetModel();
-	_set_filter(filter_text);
-	endResetModel();
-}
+// void ThumbnailView::setFilter(const QString &filter_text)
+// {
+// 	beginResetModel();
+// 	_set_filter(filter_text);
+// 	endResetModel();
+// }
 
 QImage ThumbnailView::queryThubmanil(QString const &text)
 {

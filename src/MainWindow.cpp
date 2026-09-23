@@ -104,6 +104,8 @@ struct MainWindow::Private {
 	
 	MainWindow::FilterTarget filter_target = MainWindow::FilterTarget::FolderTreeSearch;
 	StatusLabel *status_bar_label;
+	
+	QWidget *focus_widget = nullptr;
 };
 
 static QString getDisplayName(FileInfo2 const &info)
@@ -547,7 +549,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 
 		DeferResetModel defer1(model);
 
-		model->items.clear();
+		model->clearItems();
 
 		IncrementalSearchFilter filter = global->incremental_search->makeFilter(getIncrementalSearchText().toStdString());
 		
@@ -566,14 +568,14 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 					fileitem.size = -1;
 					fileitem.type = "<DIR>";
 					if (fileitem.path == select_location) {
-						select_row = model->items.size();
+						select_row = model->count();
 					}
 				} else {
 					fileitem.size = info.size;
 					fileitem.type = typeText(info);
 				}
 				fileitem.modified = info.modified;
-				model->items.push_back(fileitem);
+				model->addItem(std::move(fileitem));
 			}
 		} else if (loc.kind == Kind::ChromeBookmark) {
 			auto it = m->bookmark_items.find(loc.path);
@@ -585,7 +587,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 				fileitem.name = info.name;
 				fileitem.path = info.url;
 				fileitem.icon_ = info.url.endsWith(" /") ? m->default_folder_icon : m->default_file_icon;
-				model->items.push_back(fileitem);
+				model->addItem(std::move(fileitem));
 			}
 		}
 	}
@@ -602,6 +604,11 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 
 	//
 
+	if (m->focus_widget == ui->treeView || m->focus_widget == ui->tableView || m->focus_widget == ui->thumbnailView) {
+		m->focus_widget->setFocus();
+		m->focus_widget = nullptr;
+	}
+	
 	switch (viewmode()) {
 	case List:
 		ui->tableView->selectRow(select_row);
@@ -684,10 +691,15 @@ void MainWindow::moveToParent()
 
 void MainWindow::openTableItem(QModelIndex const &index)
 {
+	m->focus_widget = QWidget::focusWidget();
+	
 	auto Data = [&](int role){
 		return ui->thumbnailView->model()->data(index, role);
 	};
 	QString path = Data(PathRole).toString();
+	
+	clearAllFilters(true);
+	
 	QFileInfo fi(path);
 	if (fi.isDir()) {
 		openDir(path);
@@ -794,7 +806,7 @@ void MainWindow::setIncrementalSearchText(QString const &text)
 	if (!isIncrementalSearching() && !text.isEmpty()) {
 		if (ft == FilterTarget::FolderTreeSearch) {
 			// nop
-		} else if (ft == FilterTarget::FileListSearch) {
+		} else if (ft == FilterTarget::FileListViewSearch) {
 			// m->before_search_row = ui->tableWidget_log->currentRow();
 		}
 	}
@@ -803,14 +815,16 @@ void MainWindow::setIncrementalSearchText(QString const &text)
 	
 	if (ft == FilterTarget::FolderTreeSearch) {
 		ui->treeView->setFilter(text);
-		// updateRepositoryList(RepositoryTreeWidget::RepositoryListStyle::Standard, repo_list_select_row, global->incremental_search_text);
-	} else if (ft == FilterTarget::FileListSearch) {
-		ui->tableView->setFilter(text);
-		ui->thumbnailView->setFilter(text);
-		// if (focusWidget() == ui->tableView) {
-		// }
-		updateFileView();
-		// ui->tableWidget_log->setFilter(global->incremental_search_text.toStdString());
+	} else if (ft == FilterTarget::FileListViewSearch) {
+		ui->tableView->beginResetModel();
+		m->file_item_model.setFilterText(text);
+		ui->tableView->endResetModel();
+		ui->tableView->selectFirstItem();
+	} else if (ft == FilterTarget::ThumbnailViewSearch) {
+		ui->thumbnailView->beginResetModel();
+		m->file_item_model.setFilterText(text);
+		ui->thumbnailView->endResetModel();
+		ui->thumbnailView->selectFirstItem();
 	}
 }
 
@@ -839,32 +853,16 @@ void MainWindow::updateStatusBarText()
 	}
 }
 
-void MainWindow::clearAllFilters()
+void MainWindow::clearAllFilters(bool clear_file_items)
 {
 	if (!isIncrementalSearching()) return;
 	
-	clearFilterText();
-	updateStatusBarText();
-}
-
-bool MainWindow::applyFilter()
-{
-	if (getIncrementalSearchText().isEmpty()) return false;
-	
-	auto ft = filtertarget();
-	if (ft == FilterTarget::FolderTreeSearch) {
-		
-	} else if (ft == FilterTarget::FileListSearch) {
-		// int row = ui->tableWidget_log->currentRow();
-		// int index = ui->tableWidget_log->unfilteredIndex(row);
-		
-		clearAllFilters();
-		
-		// ui->tableWidget_log->setCurrentRow(index);
-		// ui->tableWidget_log->setFocus();
+	if (clear_file_items) {
+		fileitemmodel()->clearItems();
 	}
 	
-	return true;
+	clearFilterText();
+	updateStatusBarText();
 }
 
 void MainWindow::clearFilterText()
@@ -885,11 +883,9 @@ bool MainWindow::appendCharToFilterText(QString const &add, MainWindow::FilterTa
 	if (newfilter == filter) return false; // if no change, nothing to do
 	
 	m->filter_target = ft;
-	// if (isPtyProcessRunning()) {
-	// 	// ignore but return true
-	// } else {
-		setIncrementalSearchText(newfilter);
-	// }
+
+	setIncrementalSearchText(newfilter);
+	
 	updateStatusBarText();
 	return true;
 }
@@ -906,13 +902,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			const bool ctrl = (e->modifiers() & Qt::ControlModifier);
 			const bool shift = (e->modifiers() & Qt::ShiftModifier);
 			const bool enter = (k == Qt::Key_Enter || k == Qt::Key_Return);
-			
+
 			auto AppendCharToFilterText = [&](){
 				FilterTarget target;
 				if (watched == ui->treeView) {
 					target = FilterTarget::FolderTreeSearch;
 				} else if (watched == ui->tableView) {
-					target = FilterTarget::FileListSearch;
+					target = FilterTarget::FileListViewSearch;
+				} else if (watched == ui->thumbnailView) {
+					target = FilterTarget::ThumbnailViewSearch;
 				} else {
 					return false;
 				}
@@ -921,7 +919,13 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			};
 			
 			if (k == Qt::Key_Escape) {
-				clearAllFilters();
+				if (isIncrementalSearching()) {
+					clearAllFilters(false);
+				} else {
+					if (focusWidget() == ui->tableView || focusWidget() == ui->thumbnailView) {
+						ui->treeView->setFocus();
+					}
+				}
 				return true;
 			}
 			if (focusWidget() == ui->treeView) {
@@ -987,6 +991,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 		case Qt::Key_Return:
 			if (focuswidget == ui->treeView) {
 				toggleTreeItemExpansion();
+				clearAllFilters(false);
 				return;
 			}
 			if (focuswidget == ui->tableView) {
@@ -1225,7 +1230,7 @@ QString MainWindow::currentFilePath()
 
 void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderTreeItem *previous)
 {
-	qDebug() << Q_FUNC_INFO;
+	// qDebug() << Q_FUNC_INFO;
 
 	(void)current;
 	(void)previous;
@@ -1384,6 +1389,8 @@ void MainWindow::setCurrentDir(const QString &dir)
 
 void MainWindow::openDir(ItemIdList const &iidl)
 {
+	clearAllFilters(true);
+
 	setFocusFolderTree();
 
 	setCurrentIIDL(iidl);

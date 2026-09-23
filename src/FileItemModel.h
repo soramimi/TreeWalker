@@ -7,6 +7,8 @@
 #include <QDateTime>
 #include <QIcon>
 
+#include <subprojects/IncrementalSearchPlugin/src/IncrementalSearch.h>
+
 enum ItemRole {
 	KindRole = Qt::UserRole,
 	NameRole,
@@ -41,14 +43,22 @@ public:
 			return icon_;
 		}
 	};
-	QList<Item> items;
 	Kind kind_ = Kind::File;
+private:
+	std::vector<Item> items_;
+	mutable std::vector<size_t> indices_;
+	IncrementalSearchFilter filter_;
+	void updateIndices();
+public:
+	int count() const;
+	FileItemModel::Item *item(int row);
+	FileItemModel::Item const *item(int row) const;
+	void clearItems();
+	void addItem(FileItemModel::Item &&item);
 public:
 	mutable std::optional<int> filtered_items_;
-	bool isFiltered() const
-	{
-		return filtered_items_ != std::nullopt;
-	}
+	bool isFiltered() const;
+	void setFilterText(QString const &filter_text);
 public:
 	FileItemModel(QWidget *parent = nullptr);
 	virtual ~FileItemModel() = default;
@@ -62,8 +72,7 @@ public:
 	FileInfo2 const *fileinfo(const QModelIndex &index) const;
 	using QAbstractItemModel::beginResetModel;
 	using QAbstractItemModel::endResetModel;
-private:
-	QWidget *QAbstractItemModel;
+	IncrementalSearchFilter const &filter() const;
 };
 
 #endif // FILEITEMMODEL_H

@@ -10,11 +10,13 @@
 
 class FileTableView : public QTableView {
 	Q_OBJECT
+	friend class MainWindow;
 	friend class FileTableItemDelegate;
 private:
 	struct Private;
 	Private *m;
 	void _set_filter(const QString &filter_text);
+	IncrementalSearchFilter const &filter() const;
 protected:
 	void beginResetModel();
 	void endResetModel();
@@ -33,9 +35,10 @@ public:
 	QString currentPath() const;
 	// QWidget interface
 	
+	void selectFirstItem();
 	
 	
-	void setFilter(const QString &filter_text);
+	// void setFilter(const QString &filter_text);
 	
 protected:
 	void mouseDoubleClickEvent(QMouseEvent *e);

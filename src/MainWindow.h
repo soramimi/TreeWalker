@@ -57,10 +57,10 @@ class MainWindow : public QMainWindow {
 private:
 	struct Private;
 	Private *m;
-	public:
+public:
 	explicit MainWindow(QWidget *parent = 0);
 	~MainWindow();
-
+	
 	enum ViewMode {
 		List,
 		Thumbnail,
@@ -68,12 +68,13 @@ private:
 	
 	enum class FilterTarget {
 		FolderTreeSearch,
-		FileListSearch,
+		FileListViewSearch,
+		ThumbnailViewSearch,
 	};
 	
 	ViewMode viewmode() const;
 	void setViewMode(ViewMode mode);
-
+	
 	QString currentLocation();
 	QString currentFilePath();
 	void setAddressBarVisible(bool visible);
@@ -100,7 +101,7 @@ private slots:
 	void on_tableView_customContextMenuRequested(const QPoint &pos);
 	void on_treeView_currentItemChanged(FolderTreeItem *current, FolderTreeItem *previous);
 private:
-        void updateFileView();
+	void updateFileView();
 	void updateViews();
 private:
 	Ui::MainWindow *ui;
@@ -108,7 +109,7 @@ private:
 	QString modifiedText(const FileInfo2 &info);
 	QString sizeText(const FileInfo2 &info);
 	QString nameText(const FileInfo2 &info);
-
+	
 	struct TreeInfo {
 #ifdef Q_OS_WIN
 		ItemIdList iidl;
@@ -120,8 +121,8 @@ private:
 		FolderTreeItem *treeitem;
 	};
 	void makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent, TreeInfo *find = nullptr);
-		void fetchSubFolders(FolderTreeItem *parent = {}, bool check_placeholder = true);
-
+	void fetchSubFolders(FolderTreeItem *parent = {}, bool check_placeholder = true);
+	
 	FolderTreeItem *findBookmarkTreeItem(QString const &path, FolderTreeItem *item);
 #ifdef Q_OS_WIN
 	FolderTreeItem *openDirWindows(const ItemIdList &iidl);
@@ -153,13 +154,12 @@ private:
 	
 	bool appendCharToFilterText(const QString &add, MainWindow::FilterTarget ft);
 	QString getIncrementalSearchText() const;
-        void setIncrementalSearchText(const QString &text);
+	void setIncrementalSearchText(const QString &text);
 	MainWindow::FilterTarget filtertarget() const;
 	void updateStatusBarText();
 	
 	bool isIncrementalSearching() const;
-	void clearAllFilters();
-	bool applyFilter();
+	void clearAllFilters(bool clear_file_items);
 	void clearFilterText();
 protected:
 	bool acceptKeyEvent(QKeyEvent *event);

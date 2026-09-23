@@ -7,8 +7,11 @@
 #include <QStyledItemDelegate>
 #include <QMouseEvent>
 #include <QApplication>
+#include "IncrementalSearchHelper.h"
 
-void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOptionViewItem *option, bool abbreviation)
+namespace {
+
+void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOptionViewItem *option, bool abbreviation, IncrementalSearchFilter const &filter)
 {
 	bool enabled = (option->state & QStyle::State_Enabled);
 	p->save();
@@ -63,8 +66,13 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 		}
 	}
 
+	auto DrawItemText = [&](QRect const &rect, QString const &text) {
+		// s->drawItemText(p, rect, flags, option->palette, enabled, text, QPalette::NoRole);
+		incrementalsearch::drawText_filtered(p, *option, rect, text, &filter);
+	};
+	
 	QRect rName = p->fontMetrics().boundingRect(option->rect, flags, name);
-	s->drawItemText(p, rName, flags, option->palette, enabled, name, QPalette::NoRole);
+	DrawItemText(rName, name);
 	
 	if (strong_suffix && !suffix.isEmpty()) {
 		p->save();
@@ -72,12 +80,14 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 		font.setBold(true);
 		p->setFont(font);
 		QRect r = rSuffix.translated(rName.width(), 0);
-		s->drawItemText(p, r, flags, option->palette, enabled, suffix, QPalette::NoRole);
+		DrawItemText(r, suffix);
 		p->restore();
 	}
 	
 	p->restore();
 }
+
+} // namespace
 
 class FileTableItemDelegate : public QStyledItemDelegate {
 public:
@@ -130,7 +140,7 @@ public:
 			} else {
 				strong_suffix = global->appsettings.strongly_draw_file_suffix && (col == 0);
 			}
-			drawItemViewText(strong_suffix, w->style(), painter, &o, true);
+			drawItemViewText(strong_suffix, w->style(), painter, &o, true, w->filter());
 		}
 	}
 	void setLocation(const QString &loc)
@@ -143,7 +153,7 @@ public:
 struct FileTableView::Private {
 	FileTableItemDelegate item_delegate;
 	Kind kind = Kind::File;
-	IncrementalSearchFilter filter;
+	// IncrementalSearchFilter filter;
 };
 
 FileTableView::FileTableView(QWidget *parent)
@@ -166,9 +176,14 @@ FileItemModel *FileTableView::model()
 	return global->mainwindow->fileitemmodel();
 }
 
-const FileItemModel *FileTableView::model() const
+FileItemModel const *FileTableView::model() const
 {
 	return const_cast<FileTableView *>(this)->model();
+}
+
+IncrementalSearchFilter const &FileTableView::filter() const
+{
+	return model()->filter();
 }
 
 void FileTableView::setLocation(const QString &loc)
@@ -195,6 +210,11 @@ QString FileTableView::currentPath() const
 	return QString();
 }
 
+void FileTableView::selectFirstItem()
+{
+	setCurrentIndex(model()->index(0, 0));
+}
+
 void FileTableView::beginResetModel()
 {
 	model()->beginResetModel();
@@ -206,37 +226,15 @@ void FileTableView::endResetModel()
 
 void FileTableView::_set_filter(QString const &filter_text)
 {
-	model()->filtered_items_ = std::nullopt; // reset filtered items
-	m->filter = {};
-	if (!filter_text.isEmpty()) {
-		if (global->incremental_search) {
-			m->filter = global->incremental_search->makeFilter(filter_text.toStdString());
-#if 0
+	model()->setFilterText(filter_text);
+}
 
-			std::vector<FolderTreeItem *> items;
-			auto AddItem = [&](auto recursive, FolderTreeItem *item)-> void {
-				if (global->incremental_search->match(item->text().toStdString(), m->filter)) {
-					qDebug() << item->text();
-					if (!item->text().isEmpty()) {
-						items.push_back(item);
-					}
-				}
-				for (FolderTreeItem *child : *item->children()) {
-					recursive(recursive, child);
-				}
-			};
-			AddItem(AddItem, const_cast<FolderTreeItem *>(&model()->top_level_items_));
-			m->model.filtered_items_ = std::move(items);		
-#endif
-		}
-	}
-}
-void FileTableView::setFilter(const QString &filter_text)
-{
-	beginResetModel();
-	_set_filter(filter_text);
-	endResetModel();
-}
+// void FileTableView::setFilter(const QString &filter_text)
+// {
+// 	beginResetModel();
+// 	_set_filter(filter_text);
+// 	endResetModel();
+// }
 
 void FileTableView::mouseDoubleClickEvent(QMouseEvent *e)
 {
@@ -246,5 +244,12 @@ void FileTableView::mouseDoubleClickEvent(QMouseEvent *e)
 
 void FileTableView::paintEvent(QPaintEvent *event)
 {
+	IncrementalSearchFilter const *f = &filter();
+	if (f && *f) {
+		QPainter pr(viewport());
+		QColor filtered_bg_color = incrementalsearch::filtered_bg_color();
+		pr.fillRect(rect(), filtered_bg_color);
+	}
+	
 	QTableView::paintEvent(event);
 }

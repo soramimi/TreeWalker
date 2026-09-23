@@ -26,7 +26,7 @@ QColor highlight_bg_color();
 
 QString normalizeText(QString s);
 void drawText(QPainter *painter, const QStyleOptionViewItem &opt, QRect r, const QString &text);
-void drawText_filtered(QPainter *painter, QStyleOptionViewItem const &opt, QRect const &rect, const IncrementalSearchFilter &filter);
+void drawText_filtered(QPainter *painter, QStyleOptionViewItem const &opt, QRect const &rect, const QString &text, const IncrementalSearchFilter *filter);
 void fillFilteredBG(QPainter *painter, const QRect &rect);
 
 static constexpr int ASCII_BACKSPACE = 0x08;

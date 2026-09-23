@@ -2,6 +2,7 @@
 #include <QKeyEvent>
 #include <QDebug>
 #include <QStyledItemDelegate>
+#include <QPainter>
 #include "FileItemModel.h"
 #include "../subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
 #include "ApplicationGlobal.h"
@@ -359,11 +360,7 @@ class FolderTreeItemDelegate : public QStyledItemDelegate {
 private:
 	static void drawText(QPainter *painter, QStyleOptionViewItem const &opt, QRect const &rect, QString const &text, IncrementalSearchFilter const &filter)
 	{
-		if (filter) {
-			incrementalsearch::drawText_filtered(painter, opt, rect, filter);
-		} else {
-			incrementalsearch::drawText(painter, opt, rect, text);
-		}
+		incrementalsearch::drawText_filtered(painter, opt, rect, text, &filter);
 	}
 public:
 	FolderTreeItemDelegate(QObject *parent = nullptr)
@@ -382,7 +379,7 @@ public:
 
 		FolderTreeView const *treeview = qobject_cast<FolderTreeView const *>(opt.widget);
 		Q_ASSERT(treeview);
-		IncrementalSearchFilter filter = treeview->makeIncrementalSearchFilter();
+		IncrementalSearchFilter const &filter = treeview->filter();
 
 		QRect iconrect = opt.widget->style()->subElementRect(QStyle::SE_ItemViewItemDecoration, &opt, opt.widget);
 		QRect textrect = opt.widget->style()->subElementRect(QStyle::SE_ItemViewItemText, &opt, opt.widget);
@@ -468,7 +465,12 @@ void FolderTreeView::setCurrentItem(FolderTreeItem *item)
 	setCurrentIndex(index);
 }
 
-IncrementalSearchFilter FolderTreeView::makeIncrementalSearchFilter() const
+// IncrementalSearchFilter FolderTreeView::makeIncrementalSearchFilter() const
+// {
+// 	return m->filter;
+// }
+
+IncrementalSearchFilter const &FolderTreeView::filter() const
 {
 	return m->filter;
 }
@@ -505,7 +507,7 @@ void FolderTreeView::_set_filter(QString const &filter_text)
 			std::vector<FolderTreeItem *> items;
 			auto AddItem = [&](auto recursive, FolderTreeItem *item)-> void {
 				if (global->incremental_search->match(item->text().toStdString(), m->filter)) {
-					qDebug() << item->text();
+					// qDebug() << item->text();
 					if (!item->text().isEmpty()) {
 						items.push_back(item);
 					}
@@ -525,6 +527,8 @@ void FolderTreeView::setFilter(const QString &filter_text)
 	beginResetModel();
 	_set_filter(filter_text);
 	endResetModel();
+
+	setCurrentIndex(model()->index(0, 0));
 }
 
 void FolderTreeView::currentChanged(const QModelIndex &current, const QModelIndex &previous)
@@ -540,4 +544,16 @@ void FolderTreeView::onExpanded(const QModelIndex &index)
 	FolderTreeItem *item = itemFromIndex(index);
 	setCurrentItem(item);
 	emit expanded(item);
+}
+
+void FolderTreeView::paintEvent(QPaintEvent *event)
+{
+	IncrementalSearchFilter const *f = &filter();
+	if (f && *f) {
+		QPainter pr(viewport());
+		QColor filtered_bg_color = incrementalsearch::filtered_bg_color();
+		pr.fillRect(rect(), filtered_bg_color);
+	}
+	
+	QTreeView::paintEvent(event);
 }
