@@ -1,11 +1,9 @@
 QT += core gui widgets
 
-TARGET = TreeWalker
 TEMPLATE = app
 CONFIG += $$CPP_STD
 
 INCLUDEPATH += $$PWD/src
-# INCLUDEPATH += $$PWD/UGlobalHotkey/lib
 INCLUDEPATH += $$PWD/../QtDarkStyle
 
 INCLUDEPATH += $$PWD/subproject/IncrementalSearchPlugin/src/
@@ -142,3 +140,6 @@ win32:HEADERS += src/WindowsFileSystemProvider.h \
 
 !win32:HEADERS += \
 	$$PWD/src/xdg.h
+
+RESOURCES += \
+	src/resources/resources.qrc

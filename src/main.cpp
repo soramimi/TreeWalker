@@ -93,6 +93,11 @@ int main(int argc, char *argv[])
 	ApplicationGlobal g;
 	global = &g;
 
+#ifdef Q_OS_WIN
+	putenv("QT_ENABLE_HIGHDPI_SCALING=1");
+#endif
+
+	MyApplication a(argc, argv);
 	global->organization_name = ORGANIZATION_NAME;
 	global->application_name = APPLICATION_NAME;
 	global->this_executive_program = QFileInfo(argv[0]).absoluteFilePath();
@@ -100,7 +105,6 @@ int main(int argc, char *argv[])
 	global->app_config_dir = global->generic_config_dir / global->organization_name / global->application_name;
 	global->config_file_path = joinpath(global->app_config_dir, global->application_name + ".ini");
 
-	MyApplication a(argc, argv);
 	
 	// load plugins
 	{
@@ -110,12 +114,9 @@ int main(int argc, char *argv[])
 		if (!global->incremental_search) exit(1);
 	}
 	
-	qRegisterMetaType<LocationData>("LocationData");
-	qRegisterMetaType<ItemIdList>("ItemIdList");
-
 	QPluginLoader loader("darkstyleplugin");
 
-	bool darkstyle = false;
+	bool darkstyle = true;
 #if 0
 	DarkStyleInterface *plugin = dynamic_cast<DarkStyleInterface *>(loader.instance());
 	if (plugin) {
@@ -138,6 +139,10 @@ int main(int argc, char *argv[])
 #endif
 	}
 #endif
+
+	qRegisterMetaType<LocationData>("LocationData");
+	qRegisterMetaType<ItemIdList>("ItemIdList");
+
 
 	MainWindow w;
 	global->mainwindow = &w;

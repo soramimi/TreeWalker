@@ -59,7 +59,7 @@ private:
 	std::set<FolderTreeItem *, item_set_less> item_set_;
 	FolderTreeItem top_level_items_;
 	
-	mutable std::optional<std::vector<FolderTreeItem *>> filtered_items_;
+	mutable std::optional<std::vector<FolderTreeItem *>> filtered_items_ = std::nullopt;
 	bool isFiltered() const
 	{
 		return filtered_items_ != std::nullopt;
