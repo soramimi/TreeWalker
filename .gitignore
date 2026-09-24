@@ -7,3 +7,4 @@ lib/
 subprojects/FileTypePlugin/_build/
 subprojects/IncrementalSearchPlugin/_build/
 _build/
+.vscode/
