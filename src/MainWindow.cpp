@@ -918,12 +918,24 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 				return !(alt || ctrl) && appendCharToFilterText(text, target);
 			};
 			
+			if (k == Qt::Key_D) {
+				if (focusWidget() == ui->lineEdit_address) {
+					return true;
+				}
+			}
+			
 			if (k == Qt::Key_Escape) {
+				qDebug() << focusWidget();
 				if (isIncrementalSearching()) {
 					clearAllFilters(false);
+				} else if (focusWidget() == ui->menuBar) {
+					setAddressBarVisible(false);
+					return false;
 				} else {
+					// setFocusFolderTree();
+					setAddressBarVisible(false);
 					if (focusWidget() == ui->tableView || focusWidget() == ui->thumbnailView) {
-						ui->treeView->setFocus();
+						// ui->treeView->setFocus();
 					}
 				}
 				return true;
@@ -1008,11 +1020,6 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 				return;
 			}
 			break;
-		case Qt::Key_Escape:
-			ui->frame_tool_bar->setVisible(false);
-			setFocusFolderTree();
-			event->accept();
-			return;
 		case Qt::Key_Backspace:
 			if (focuswidget == ui->tableView || focuswidget == ui->thumbnailView) {
 				moveToParent();
@@ -1026,6 +1033,12 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 			break;
 		case Qt::Key_D:
 			if (event->modifiers() & Qt::AltModifier) {
+				setAddressBarVisible(true);
+				return;
+			}
+			break;
+		case Qt::Key_L:
+			if (event->modifiers() & Qt::ControlModifier) {
 				setAddressBarVisible(true);
 				return;
 			}
@@ -1430,11 +1443,20 @@ void MainWindow::openDir(ItemIdList const &iidl)
 void MainWindow::setAddressBarVisible(bool visible)
 {
 	if (visible) {
+		QWidget *focuswidget = QWidget::focusWidget();
+		if (focuswidget == ui->treeView || focuswidget == ui->tableView) {
+			m->focus_widget = focuswidget;
+		}
 		ui->frame_tool_bar->setVisible(true);
 		ui->lineEdit_address->setFocus();
 		ui->lineEdit_address->selectAll();
 	} else {
 		ui->frame_tool_bar->setVisible(false);
+		if (m->focus_widget) {
+			m->focus_widget->setFocus();
+		} else {
+			ui->treeView->setFocus();
+		}
 	}
 }
 
