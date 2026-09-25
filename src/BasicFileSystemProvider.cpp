@@ -1,6 +1,6 @@
 #include "BasicFileSystemProvider.h"
 #include <QDebug>
-#include "joinpath.h"
+#include "common/joinpath.h"
 #include "ApplicationGlobal.h"
 #include "common/realpath.h"
 #include "xdg.h"

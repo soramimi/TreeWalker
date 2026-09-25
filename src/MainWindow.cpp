@@ -7,7 +7,7 @@
 #include "RenameDialog.h"
 #include "SettingsDialog.h"
 #include "StatusLabel.h"
-#include "joinpath.h"
+#include "common/joinpath.h"
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QElapsedTimer>
@@ -925,7 +925,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			}
 			
 			if (k == Qt::Key_Escape) {
-				qDebug() << focusWidget();
+				// qDebug() << focusWidget();
 				if (isIncrementalSearching()) {
 					clearAllFilters(false);
 				} else if (focusWidget() == ui->menuBar) {
@@ -934,9 +934,9 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 				} else {
 					// setFocusFolderTree();
 					setAddressBarVisible(false);
-					if (focusWidget() == ui->tableView || focusWidget() == ui->thumbnailView) {
-						// ui->treeView->setFocus();
-					}
+					// if (focusWidget() == ui->tableView || focusWidget() == ui->thumbnailView) {
+					// 	// ui->treeView->setFocus();
+					// }
 				}
 				return true;
 			}
@@ -1444,7 +1444,7 @@ void MainWindow::setAddressBarVisible(bool visible)
 {
 	if (visible) {
 		QWidget *focuswidget = QWidget::focusWidget();
-		if (focuswidget == ui->treeView || focuswidget == ui->tableView) {
+		if (focuswidget == ui->treeView || focuswidget == ui->tableView || focuswidget == ui->thumbnailView) {
 			m->focus_widget = focuswidget;
 		}
 		ui->frame_tool_bar->setVisible(true);
@@ -1454,6 +1454,7 @@ void MainWindow::setAddressBarVisible(bool visible)
 		ui->frame_tool_bar->setVisible(false);
 		if (m->focus_widget) {
 			m->focus_widget->setFocus();
+			m->focus_widget = nullptr;
 		} else {
 			ui->treeView->setFocus();
 		}

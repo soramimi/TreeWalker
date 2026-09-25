@@ -11,8 +11,8 @@
 
 namespace misc {
 
-std::wstring convert_str_to_wstr(std::string const &str);
-std::string convert_wstr_to_str(std::wstring const &str);
+std::wstring convert_utf8_to_wstr(std::string const &str);
+std::string convert_wstr_to_utf8(std::wstring const &str);
 
 }
 

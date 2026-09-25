@@ -1,7 +1,7 @@
 #include "wstring.h"
 #include <Windows.h>
 
-std::wstring misc::convert_str_to_wstr(std::string const &str)
+std::wstring misc::convert_utf8_to_wstr(std::string const &str)
 {
 	std::wstring wstr;
 	if (str.empty()) return wstr;
@@ -13,7 +13,7 @@ std::wstring misc::convert_str_to_wstr(std::string const &str)
 	return wstr;
 }
 
-std::string misc::convert_wstr_to_str(std::wstring const &str)
+std::string misc::convert_wstr_to_utf8(std::wstring const &str)
 {
 	std::string s;
 	if (str.empty()) return s;

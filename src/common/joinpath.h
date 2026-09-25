@@ -58,6 +58,18 @@ public:
 		return joinpath(left.c_str(), right.c_str());
 	}
 
+	static std::wstring joinpath(wchar_t const *left, wchar_t const *right)
+	{
+		std::vector<wchar_t> vec;
+		joinpath_(left, right, &vec);
+		return std::wstring(vec.begin(), vec.end());
+	}
+
+	static std::wstring joinpath(std::wstring const &left, std::wstring const &right)
+	{
+		return joinpath(left.c_str(), right.c_str());
+	}
+
 };
 
 static inline std::string joinpath(char const *left, char const *right)
@@ -74,6 +86,25 @@ static inline std::string operator / (std::string const &left, std::string const
 {
 	return joinpath(left, right);
 }
+
+#ifdef _WIN32
+static inline std::wstring joinpath(wchar_t const *left, wchar_t const *right)
+{
+	return JoinPath::joinpath(left, right);
+}
+
+static inline std::wstring joinpath(std::wstring const &left, std::wstring const &right)
+{
+	return JoinPath::joinpath(left, right);
+}
+
+static inline std::wstring operator / (std::wstring const &left, std::wstring const &right)
+{
+	return joinpath(left, right);
+}
+
+
+#endif
 
 #ifdef QT_VERSION
 // #include <QString>

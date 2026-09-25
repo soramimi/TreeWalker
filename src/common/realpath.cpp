@@ -26,28 +26,31 @@
 std::string misc::realpath(const char *path)
 {
 #ifdef _WIN32
-	std::string s = path;
-	for (char &c : s) {
+	std::wstring ws = misc::convert_utf8_to_wstr(path);
+	// std::string s = path;
+	for (wchar_t c : ws) {
 		if (c == '/') {
 			c = '\\';
 		}
 	}
 	if (*path == '~') {
+		std::wstring home;
 		PWSTR path2 = NULL;
 		HRESULT hr = SHGetKnownFolderPath(FOLDERID_Profile, 0, NULL, &path2);
 
 		if (SUCCEEDED(hr)) {
-			s = misc::convert_wstr_to_str(path2);
+			home = path2;
 			// fprintf(stderr, "Home Directory: %s\n", s.c_str());
 			// Must free the memory allocated by the API
 			CoTaskMemFree(path2);
 		}
 
-		s = s / (path + 1);
+		ws = home / ws.substr(1);
 	}
-	char tmp[MAX_PATH];
-	if (_fullpath(tmp, s.c_str(), MAX_PATH)) {
-		return misc::normalizePathSeparator(s);
+	wchar_t tmp[MAX_PATH];
+	if (_wfullpath(tmp, ws.c_str(), MAX_PATH)) {
+		ws = misc::normalizePathSeparator(ws);
+		return misc::convert_wstr_to_utf8(ws);
 	}
 #else
 	std::string s;
@@ -77,6 +80,11 @@ std::string misc::realpath(std::string const &path)
 
 QString misc::realpath(QString const &path)
 {
+#ifdef _WIN32
+	auto s = realpath(convert_wstr_to_utf8(path.toStdWString()));
+	return QString::fromStdWString(convert_utf8_to_wstr(s));
+#else
 	auto s = realpath(path.toStdString());
 	return QString::fromStdString(s);
+#endif
 }

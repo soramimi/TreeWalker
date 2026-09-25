@@ -6,7 +6,7 @@
 #include <QDebug>
 #include <QStandardPaths>
 #include <QPluginLoader>
-#include "joinpath.h"
+#include "common/joinpath.h"
 #include "ApplicationGlobal.h"
 #include "Theme.h"
 #include "../subprojects/FileTypePlugin/src/FileTypeInterface.h"

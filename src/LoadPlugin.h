@@ -5,7 +5,7 @@
 #include <QCoreApplication>
 #include <QPluginLoader>
 #include <QString>
-#include <joinpath.h>
+#include <common/joinpath.h>
 #include <memory>
 
 template <typename ImplType, typename Interface> std::shared_ptr<ImplType> loadPlugin(std::string name)

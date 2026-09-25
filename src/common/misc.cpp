@@ -282,6 +282,18 @@ std::string misc::normalizePathSeparator(std::string const &str)
 	}
 	return out;
 }
+std::wstring misc::normalizePathSeparator(std::wstring const &str)
+{
+	std::wstring out;
+	for (size_t i = 0; i < str.size(); i++) {
+		wchar_t c = str[i];
+		if (c == '/') {
+			c = '\\';
+		}
+		out += c;
+	}
+	return out;
+}
 #else
 #ifdef USE_QT
 QString misc::normalizePathSeparator(QString const &str)

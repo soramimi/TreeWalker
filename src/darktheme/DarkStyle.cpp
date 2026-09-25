@@ -1419,8 +1419,7 @@ void DarkStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *opti
 			drawPrimitive(PE_PanelItemViewRow, option, painter, widget);
 		}
 		auto DrawSelectionFrame = [&](QRect const &r){
-			bool focus = widget && widget->hasFocus();
-			drawSelectedItemFrame(painter, r, focus);
+			drawSelectedItemFrame(painter, r, true);
 		};
 		if (auto const *tableview = qobject_cast<QTableView const *>(widget)) {
 			QAbstractItemView::SelectionBehavior selection_behavior = tableview->selectionBehavior();

@@ -54,7 +54,6 @@ SOURCES += \
 	src/SettingsDialog.cpp \
 	src/StatusLabel.cpp \
 	src/charvec.cpp \
-	src/joinpath.cpp \
 	src/Theme.cpp \
 	src/main.cpp
 
@@ -115,7 +114,6 @@ HEADERS += \
 	src/SettingsDialog.h \
 	src/StatusLabel.h \
 	src/charvec.h \
-	src/joinpath.h \
 	src/Theme.h \
 	src/jstream.h
 

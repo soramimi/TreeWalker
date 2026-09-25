@@ -61,6 +61,7 @@ public:
 		}
 		if (alpha > 0) {
 			painter->save();
+alpha = 1.0;
 			painter->setOpacity(alpha);
 			qApp->style()->drawPrimitive(QStyle::PE_PanelItemViewItem, &o1, painter, 0);
 			painter->restore();
@@ -95,8 +96,7 @@ public:
 				pr.fillRect(r.adjusted(-1, -1, 1, 1), Qt::black);
 				pr.fillRect(r.adjusted(1, 1, -1, -1), Qt::white);
 				pr.setPen(Qt::black);
-				// pr.drawText(r, Qt::AlignCenter, ext);
-				incrementalsearch::drawText_filtered(&pr, o2, r, ext, filter);
+				pr.drawText(r, Qt::AlignCenter, ext);
 			}
 			icon = QIcon(pm);
 		} else {
@@ -160,7 +160,7 @@ public:
 			int h = doc.size().height();
 			painter->save();
 			QRect r(o2.rect.x(), o2.rect.y() + o2.rect.height() - h, o2.rect.width(), h);
-			painter->fillRect(r, QColor(255, 255, 255, 128));
+			painter->fillRect(r, QColor(128, 128, 128, 128));
 			painter->translate(r.x(), r.y());
 			doc.drawContents(painter);
 			painter->restore();

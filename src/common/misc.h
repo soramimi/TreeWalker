@@ -80,6 +80,9 @@ bool ends_with(const std::string_view &str, char with);
 std::string mid(std::string const &str, int start, int length = -1);
 std::string replace_backslash_to_slash(std::string_view const &in);
 std::string normalizePathSeparator(std::string const &str);
+#ifdef _WIN32
+std::wstring normalizePathSeparator(std::wstring const &str);
+#endif
 #ifdef USE_QT
 QString normalizePathSeparator(QString const &str);
 #endif
