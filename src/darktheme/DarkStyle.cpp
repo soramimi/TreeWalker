@@ -1226,9 +1226,6 @@ int DarkStyle::styleHint(QStyle::StyleHint hint, const QStyleOption *option, con
 
 void DarkStyle::drawItemText(QPainter *painter, const QRect &rect, int flags, const QPalette &pal, bool enabled, const QString &text, QPalette::ColorRole textRole) const
 {
-	if (text == "みみのAlchemiaFleur") {
-		qDebug() << text;
-	}
 	MyCommonStyle<QCommonStyle>::drawItemText(painter, rect, flags, pal, enabled, text, textRole);
 }
 
@@ -1425,7 +1422,7 @@ void DarkStyle::drawPrimitive(PrimitiveElement element, const QStyleOption *opti
 		if (auto const *tableview = qobject_cast<QTableView const *>(widget)) {
 			QAbstractItemView::SelectionBehavior selection_behavior = tableview->selectionBehavior();
 			if (option->state & State_Selected) {
-				qDebug() << option->state;
+				// qDebug() << option->state;
 				painter->save();
 				painter->setClipRect(option->rect);
 				QRect r = widget->rect();

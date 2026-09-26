@@ -906,7 +906,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			const bool shift = (e->modifiers() & Qt::ShiftModifier);
 			const bool enter = (key == Qt::Key_Enter || key == Qt::Key_Return);
 
-			qDebug() << Q_FUNC_INFO << key;
+			// qDebug() << Q_FUNC_INFO << key;
 
 			QWidget *focuswidget = QApplication::focusWidget();
 
@@ -1020,7 +1020,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 {
 	QWidget *focuswidget = QApplication::focusWidget();
 	int key = event->key();
-	qDebug() << Q_FUNC_INFO << key;
+	// qDebug() << Q_FUNC_INFO << key;
 	if (QApplication::activeModalWidget()) {
 		// nop:
 	} else {

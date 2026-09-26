@@ -6,6 +6,7 @@
 #include <QDebug>
 #include <QStandardPaths>
 #include <QPluginLoader>
+#include <thread>
 #include "common/joinpath.h"
 #include "ApplicationGlobal.h"
 #include "Theme.h"
@@ -85,14 +86,43 @@ void logHandler(QtMsgType type, const QMessageLogContext &context, const QString
 	// }
 }
 
+void debug()
+{
+	qDebug() << Q_FUNC_INFO;
+	
+	auto LoadImage = [](){
+		QString path = "/home/soramimi/develop/Guitar/src/resources/Guitar.icns";
+		QImage img(path);
+		qDebug() << img;
+	};
+	if (0) { // single thread
+		LoadImage();
+	} else { // multi thread
+		constexpr int N = 1;
+		std::vector<std::thread> threads(N);
+		for (size_t i = 0; i < N; i++) {
+			threads[i] = std::thread([&](){
+				LoadImage();
+			});
+		}
+		for (size_t i = 0; i < N; i++) {
+			threads[i].join();
+		}
+	}
+}
+
 int main(int argc, char *argv[])
 {
+	if (0) {
+		debug();
+	}
+	
 	putenv("QT_ASSUME_STDERR_HAS_CONSOLE=1");
 	// qInstallMessageHandler(logHandler);
 
 	ApplicationGlobal g;
 	global = &g;
-
+	
 #ifdef Q_OS_WIN
 	putenv("QT_ENABLE_HIGHDPI_SCALING=1");
 #endif

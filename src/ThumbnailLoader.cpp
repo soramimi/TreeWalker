@@ -1,17 +1,17 @@
 #include "ThumbnailLoader.h"
 
+#include "common/misc.h"
+#include <QDebug>
+#include <QElapsedTimer>
+#include <algorithm>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
+#include <list>
 #include <mutex>
 #include <thread>
-#include <vector>
-#include <algorithm>
-#include <QElapsedTimer>
-#include <QDebug>
-#include <chrono>
 #include <unordered_map>
-#include <list>
-#include "common/misc.h"
+#include <vector>
 
 template <typename KEY, typename VALUE> class T_Cache {
 public:
@@ -159,11 +159,23 @@ void ThumbnailLoader::start()
 					m->submission_queue.pop_front();
 				}
 				if (entity) {
+					if (0) { // debug
+						QString path = "/home/soramimi/develop/Guitar/src/resources/Guitar.icns";
+						QImage img = QImage(path);
+						
+					}
+					
+					QImage img;
+					if (entity->path.endsWith(".icns", Qt::CaseInsensitive)) {
+						// something wrong: icns files are not thread-safe to load (?)
+					} else {
 #ifdef _WIN32
-					QImage img = winQueryThumbnail(entity->path);
+						img = winQueryThumbnail(entity->path);
 #else
-					QImage img(entity->path);
+						img = QImage(entity->path);
 #endif
+					}
+					
 					if (!img.isNull()) {
 						entity->image = resizeImageForThumbnail(img);
 						entity->last_access = QDateTime::currentDateTime();

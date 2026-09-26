@@ -1,12 +1,11 @@
 #ifndef THUMBNAILLOADER_H
 #define THUMBNAILLOADER_H
 
-#include <string>
-#include <memory>
+#include <QDateTime>
 #include <QImage>
 #include <QObject>
-#include <QDateTime>
-
+#include <memory>
+#include <string>
 
 class ThumbnailLoader : public QObject {
 	Q_OBJECT

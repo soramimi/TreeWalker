@@ -317,7 +317,7 @@ void FolderTreeItem::addChild(FolderTreeItem *child, int row)
 
 	if (model_) {
 		size_t last = children_.size();
-		qDebug() << Q_FUNC_INFO << last << children_.size();
+		// qDebug() << Q_FUNC_INFO << last << children_.size();
 		model_->beginInsertRows(model_->indexFromItem(this), last, last);
 
 		auto InsertChildren = [&](auto self, FolderTreeItem *item)-> void {
@@ -588,6 +588,7 @@ void FolderTreeView::setFilter(const QString &filter_text)
 		}
 		if (m->model.item_set_.find(restore_current_item) != m->model.item_set_.end()) {
 			setCurrentItem(restore_current_item);
+			setExpanded(restore_current_item, true);
 		}
 	} else {
 		setCurrentIndex(model()->index(0, 0));

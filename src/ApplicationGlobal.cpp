@@ -1,11 +1,12 @@
 #include "ApplicationGlobal.h"
 
-#ifdef Q_OS_WIN
-#include "WindowsShellAPI.h"
+#include <unordered_set>
 
 #include <QIcon>
 #include <QPainter>
-#include <unordered_set>
+
+#ifdef Q_OS_WIN
+#include "WindowsShellAPI.h"
 #endif
 
 
