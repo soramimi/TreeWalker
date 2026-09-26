@@ -304,6 +304,8 @@ public:
 
 void FolderTreeItem::addChild(FolderTreeItem *child, int row)
 {
+	if (model_ && model_->isFiltered()) return;
+
 	child->parent_ = this;
 
 	if (row < 0 || row > children_.size()) {
@@ -314,7 +316,9 @@ void FolderTreeItem::addChild(FolderTreeItem *child, int row)
 	clearChildrenCache(); // invalidate cache
 
 	if (model_) {
-		model_->beginInsertRows(model_->indexFromItem(this), children_.size() - 1, children_.size() - 1);
+		size_t last = children_.size();
+		qDebug() << Q_FUNC_INFO << last << children_.size();
+		model_->beginInsertRows(model_->indexFromItem(this), last, last);
 
 		auto InsertChildren = [&](auto self, FolderTreeItem *item)-> void {
 			model_->_insertChild(item);

@@ -47,6 +47,22 @@ int FileItemModel::count() const
 	return indices_.size();
 }
 
+int FileItemModel::unfilteredRow(int row)
+{
+	if (row >= 0) {
+		size_t cnt = indices_.size();
+		if (isFiltered()) {
+			cnt = count();
+			if (row < cnt) {
+				return indices_[row];
+			}
+		} else if (row < items_.size()) {
+			return row;
+		}
+	}
+	return -1;
+}
+
 FileItemModel::Item *FileItemModel::item(int row)
 {
 	size_t index = indices_[row];
@@ -155,7 +171,11 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 			return text;
 		case Qt::DecorationRole:
 			if (col == 0) {
-				return global->mainwindow->getIcon(item(row)->info);
+				FileItemModel::Item const *item= this->item(row);
+				if (item && item->info.isdir) {
+					return QIcon(QPixmap::fromImage(global->folder_icon));
+				}
+				return global->mainwindow->getIcon(item->info);
 			}
 			break;
 		case Qt::SizeHintRole:

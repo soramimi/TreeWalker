@@ -297,6 +297,8 @@ bool MainWindow::hasSubDir(AbstractFileSystemProvider *fs, ItemIdList const &iid
 
 void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent, TreeInfo *find)
 {
+	if (isIncrementalSearching()) return;
+
 	clearIconCache();
 
 	std::vector<FileInfo2> dirs;
@@ -483,6 +485,7 @@ FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList iidl)
 
 void MainWindow::fetchSubFolders(FolderTreeItem *parent, bool check_placeholder)
 {
+	if (isIncrementalSearching()) return;
 	if (!parent) return;
 	Kind kind = (Kind)parent->data(0, KindRole).toInt();
 	if (kind == Kind::Directory || kind == Kind::SubDirectory) {
@@ -775,6 +778,7 @@ bool MainWindow::acceptKeyEvent(QKeyEvent *event)
 
 void MainWindow::updateCurrentFolder()
 {
+	if (isIncrementalSearching()) return;
 	auto item = ui->treeView->currentItem();
 	fetchSubFolders(item, false);
 }
@@ -816,15 +820,14 @@ void MainWindow::setIncrementalSearchText(QString const &text)
 	if (ft == FilterTarget::FolderTreeSearch) {
 		ui->treeView->setFilter(text);
 	} else if (ft == FilterTarget::FileListViewSearch) {
-		ui->tableView->beginResetModel();
-		m->file_item_model.setFilterText(text);
-		ui->tableView->endResetModel();
-		ui->tableView->selectFirstItem();
+		ui->tableView->setFilterText(text);
 	} else if (ft == FilterTarget::ThumbnailViewSearch) {
-		ui->thumbnailView->beginResetModel();
-		m->file_item_model.setFilterText(text);
-		ui->thumbnailView->endResetModel();
-		ui->thumbnailView->selectFirstItem();
+		ui->thumbnailView->setFilterText(text);
+
+		// ui->thumbnailView->beginResetModel();
+		// m->file_item_model.setFilterText(text);
+		// ui->thumbnailView->endResetModel();
+		// ui->thumbnailView->selectFirstItem();
 	}
 }
 
@@ -897,11 +900,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			// thru
 		} else {
 			QKeyEvent *e = (QKeyEvent *)event;
-			const int k = e->key();
+			const int key = e->key();
 			const bool alt = (e->modifiers() & Qt::AltModifier);
 			const bool ctrl = (e->modifiers() & Qt::ControlModifier);
 			const bool shift = (e->modifiers() & Qt::ShiftModifier);
-			const bool enter = (k == Qt::Key_Enter || k == Qt::Key_Return);
+			const bool enter = (key == Qt::Key_Enter || key == Qt::Key_Return);
+
+			qDebug() << Q_FUNC_INFO << key;
+
+			QWidget *focuswidget = QApplication::focusWidget();
 
 			auto AppendCharToFilterText = [&](){
 				FilterTarget target;
@@ -917,54 +924,93 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 				QString text = e->text();
 				return !(alt || ctrl) && appendCharToFilterText(text, target);
 			};
-			
-			if (k == Qt::Key_D) {
-				if (focusWidget() == ui->lineEdit_address) {
+
+			switch (key) {
+			case Qt::Key_Tab:
+			case Qt::Key_Backtab:
+				if (focuswidget == ui->treeView) {
+					setFocusItemsView();
 					return true;
 				}
-			}
-			
-			if (k == Qt::Key_Escape) {
-				// qDebug() << focusWidget();
+				if (focuswidget == ui->tableView) {
+					setFocusFolderTree();
+					return true;
+				}
+				if (focuswidget == ui->thumbnailView) {
+					setFocusFolderTree();
+					return true;
+				}
+				if (focuswidget == ui->lineEdit_address) {
+					setFocusFolderTree();
+					return true;
+				}
+				break;
+			case Qt::Key_D:
+				if (focuswidget == ui->lineEdit_address) {
+					return true;
+				}
+				break;
+			case Qt::Key_Escape:
 				if (isIncrementalSearching()) {
 					clearAllFilters(false);
-				} else if (focusWidget() == ui->menuBar) {
+				} else if (focuswidget == ui->menuBar) {
 					setAddressBarVisible(false);
-					return false;
+					break;
 				} else {
-					// setFocusFolderTree();
 					setAddressBarVisible(false);
-					// if (focusWidget() == ui->tableView || focusWidget() == ui->thumbnailView) {
-					// 	// ui->treeView->setFocus();
-					// }
+					setFocusFolderTree();
 				}
 				return true;
-			}
-			if (focusWidget() == ui->treeView) {
-				if (ctrl) {
-					//
-				} else {
-					if (e->key() == '*') {
-						updateCurrentFolder();
-						return true; // suppress tree expansion
+			case Qt::Key_Home:
+				if (focuswidget == ui->tableView) {
+					// ui->tableView->scrollToTop();
+					ui->tableView->setCurrentTop();
+					return true;
+				}
+				break;
+			case Qt::Key_End:
+				if (focuswidget == ui->tableView) {
+					// ui->tableView->scrollToBottom();
+					ui->tableView->setCurrentBottom();
+					return true;
+				}
+				break;
+			default:
+				if (QString text = e->text(); !text.isEmpty()) {
+					if (text == "[") {
+						on_action_view_detailed_triggered();
+						return true;
 					}
-					if (e->key() == Qt::Key_Left || enter) {
-						if (ui->treeView->currentItem() == m->my_computer_item) {
-							if (ui->treeView->isExpanded(m->my_computer_item)) {
-								return true; // suppress tree collapse
+					if (text == "]") {
+						on_action_view_thumbnails_triggered();
+						return true;
+					}
+				}
+				if (focuswidget == ui->treeView) {
+					if (ctrl) {
+						//
+					} else {
+						if (e->key() == '*') {
+							updateCurrentFolder();
+							return true; // suppress tree expansion
+						}
+						if (e->key() == Qt::Key_Left || enter) {
+							if (ui->treeView->currentItem() == m->my_computer_item) {
+								if (ui->treeView->isExpanded(m->my_computer_item)) {
+									return true; // suppress tree collapse
+								}
 							}
 						}
 					}
 				}
-			}
-			if (focusWidget() == ui->treeView || focusWidget() == ui->tableView || focusWidget() == ui->thumbnailView) {
-				if (!ctrl) {
-					if (AppendCharToFilterText()) {
-						return true;
+				if (focuswidget == ui->treeView || focuswidget == ui->tableView || focuswidget == ui->thumbnailView) {
+					if (!ctrl) {
+						if (AppendCharToFilterText()) {
+							return true;
+						}
 					}
 				}
 			}
-			
 		}
 	}
 	return QMainWindow::eventFilter(watched, event);
@@ -974,6 +1020,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 {
 	QWidget *focuswidget = QApplication::focusWidget();
 	int key = event->key();
+	qDebug() << Q_FUNC_INFO << key;
 	if (QApplication::activeModalWidget()) {
 		// nop:
 	} else {
@@ -982,12 +1029,19 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 		case Qt::Key_Backtab:
 			if (focuswidget == ui->treeView) {
 				setFocusItemsView();
-			} else if (focuswidget == ui->tableView) {
+				return;
+			}
+			if (focuswidget == ui->tableView) {
 				setFocusFolderTree();
-			} else if (focuswidget == ui->thumbnailView) {
+				return;
+			}
+			if (focuswidget == ui->thumbnailView) {
 				setFocusFolderTree();
-			} else if (focuswidget == ui->lineEdit_address) {
+				return;
+			}
+			if (focuswidget == ui->lineEdit_address) {
 				setFocusFolderTree();
+				return;
 			}
 			break;
 		case Qt::Key_Enter:
@@ -1051,8 +1105,10 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 			return;
 		case Qt::Key_Right:
 			if (focuswidget == ui->treeView) {
-				updateCurrentFolder();
-				return;
+				if (!isIncrementalSearching()) {
+					updateCurrentFolder();
+					return;
+				}
 			}
 			break;
 		}
@@ -1081,7 +1137,7 @@ void MainWindow::setFocusItemsView()
 
 QImage MainWindow::queryThumbnail(QString const &path)
 {
-#ifdef Q_OS_WIN
+#if 0//def Q_OS_WIN
 	QFileInfo fi(path);
 	if (fi.isDir()) {
 		ItemIdList iidl = global->shapi->parseDisplayName(path);

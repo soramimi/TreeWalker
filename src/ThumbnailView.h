@@ -38,6 +38,8 @@ public:
 
 	void selectFirstItem();
 	
+	void setFilterText(QString const &text);
+
 	// void setFilter(const QString &filter_text);
 	
 	// QWidget interface

@@ -335,6 +335,15 @@
            <property name="frameShape">
             <enum>QFrame::Shape::NoFrame</enum>
            </property>
+           <property name="editTriggers">
+            <set>QAbstractItemView::EditTrigger::NoEditTriggers</set>
+           </property>
+           <property name="selectionBehavior">
+            <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+           </property>
+           <property name="horizontalScrollMode">
+            <enum>QAbstractItemView::ScrollMode::ScrollPerPixel</enum>
+           </property>
           </widget>
          </item>
         </layout>
@@ -350,7 +359,7 @@
      <x>0</x>
      <y>0</y>
      <width>1029</width>
-     <height>18</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuExperiment">

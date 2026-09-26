@@ -54,6 +54,8 @@ struct ApplicationGlobal {
 	std::string mimetype_by_file(const char *path);
 	std::string mimetype_by_file(std::string const &path);
 	
+	bool is_extension_archive_file(QString const &suffix);
+	QIcon makeArchiveFileIcon(const QString &suffix);
 };
 
 extern ApplicationGlobal *global;

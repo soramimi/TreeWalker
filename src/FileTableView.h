@@ -36,8 +36,11 @@ public:
 	// QWidget interface
 	
 	void selectFirstItem();
+
+	void setFilterText(const QString &text);
 	
-	
+	void setCurrentTop();
+	void setCurrentBottom();
 	// void setFilter(const QString &filter_text);
 	
 protected:

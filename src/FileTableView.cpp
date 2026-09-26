@@ -124,8 +124,13 @@ public:
 				int z = o.rect.height() * 5 / 4;
 				QRect r = o.rect;
 				r.setWidth(r.height());
-				if (!fileinfo->isdir && fileinfo->name.endsWith(".zip", Qt::CaseInsensitive)) {
-					QIcon icon = QIcon(QPixmap::fromImage(global->zip_file_icon));
+
+				QString suffix = fileinfo->name;
+				if (int i = suffix.lastIndexOf('.'); i > 0) {
+					suffix = suffix.mid(i + 1);
+				}
+				if (!fileinfo->isdir && global->is_extension_archive_file(suffix)) {
+					auto icon = global->makeArchiveFileIcon(suffix);
 					icon.paint(painter, r);
 				} else {
 					o.icon.paint(painter, r);
@@ -217,6 +222,38 @@ QString FileTableView::currentPath() const
 void FileTableView::selectFirstItem()
 {
 	setCurrentIndex(model()->index(0, 0));
+}
+
+void FileTableView::setFilterText(QString const &text)
+{
+	int row = 0;
+	if (text.isEmpty()) {
+		row = model()->unfilteredRow(currentIndex().row());
+	}
+
+	beginResetModel();
+	model()->setFilterText(text);
+	endResetModel();
+
+	if (row != -1) {
+		auto index = model()->index(row, 0);
+		setCurrentIndex(index);
+		scrollTo(index);
+	}
+}
+
+void FileTableView::setCurrentTop()
+{
+	auto index = model()->index(0, 0);
+	setCurrentIndex(index);
+	scrollTo(index);
+}
+
+void FileTableView::setCurrentBottom()
+{
+	auto index = model()->index(model()->rowCount() - 1, 0);
+	setCurrentIndex(index);
+	scrollTo(index);
 }
 
 void FileTableView::beginResetModel()
