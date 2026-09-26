@@ -76,8 +76,10 @@ public:
 	void setViewMode(ViewMode mode);
 	
 	QString locationText(FolderTreeItem *item) const;
+	QString location(FolderTreeItem const *item) const;
 	QString currentLocation() const;
 	QString currentFilePath();
+	bool isAddressBarVisible() const;
 	void setAddressBarVisible(bool visible);
 	void toggleBookbarkBarVisible();
 public:
@@ -87,6 +89,7 @@ public:
 	std::vector<FileInfo2> windowsMyComputerFiles();
 	QImage queryThumbnail(const QString &path);
 	void setFocusFolderTree();
+	void setFocusItemsView();
 	FileItemModel *fileitemmodel();
 	QIcon getIcon(const FileInfo2 &info);
 private:
@@ -175,6 +178,7 @@ private slots:
 	void on_treeView_collapsed(const QModelIndex &index);
 	
 public:
+	bool isDir(FolderTreeItem *item) const;
 };
 
 class VirtualFileSystem {

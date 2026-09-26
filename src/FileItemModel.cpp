@@ -116,7 +116,6 @@ static QString modifiedText(QDateTime const &dt)
 
 QVariant FileItemModel::data(const QModelIndex &index, int role) const
 {
-
 	int row = index.row();
 	if (row >= 0 && row < count()) {
 		int col = index.column();

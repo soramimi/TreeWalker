@@ -693,12 +693,12 @@ void MainWindow::openTableItem(QModelIndex const &index)
 {
 	m->focus_widget = QWidget::focusWidget();
 	
+	clearAllFilters(true);
+	
 	auto Data = [&](int role){
 		return ui->thumbnailView->model()->data(index, role);
 	};
 	QString path = Data(PathRole).toString();
-	
-	clearAllFilters(true);
 	
 	QFileInfo fi(path);
 	if (fi.isDir()) {
@@ -948,7 +948,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 						updateCurrentFolder();
 						return true; // suppress tree expansion
 					}
-					if (e->key() == Qt::Key_Left || e->key() == Qt::Key_Enter || e->key() == Qt::Key_Return) {
+					if (e->key() == Qt::Key_Left || enter) {
 						if (ui->treeView->currentItem() == m->my_computer_item) {
 							if (ui->treeView->isExpanded(m->my_computer_item)) {
 								return true; // suppress tree collapse
@@ -981,16 +981,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 		case Qt::Key_Tab:
 		case Qt::Key_Backtab:
 			if (focuswidget == ui->treeView) {
-				switch (viewmode()) {
-				case List:
-					ui->stackedWidget_fileview->setCurrentWidget(ui->page_list);
-					ui->tableView->setFocus();
-					break;
-				case Thumbnail:
-					ui->stackedWidget_fileview->setCurrentWidget(ui->page_thumbnail);
-					ui->thumbnailView->setFocus();
-					break;
-				}
+				setFocusItemsView();
 			} else if (focuswidget == ui->tableView) {
 				setFocusFolderTree();
 			} else if (focuswidget == ui->thumbnailView) {
@@ -1001,9 +992,12 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 			break;
 		case Qt::Key_Enter:
 		case Qt::Key_Return:
-			if (focuswidget == ui->treeView) {
-				toggleTreeItemExpansion();
+			if (isIncrementalSearching()) {
 				clearAllFilters(false);
+				return;
+			}
+			if (focuswidget == ui->treeView) {
+				setFocusItemsView();
 				return;
 			}
 			if (focuswidget == ui->tableView) {
@@ -1071,6 +1065,20 @@ void MainWindow::setFocusFolderTree()
 	ui->treeView->setFocus();
 }
 
+void MainWindow::setFocusItemsView()
+{
+	switch (viewmode()) {
+	case List:
+		ui->stackedWidget_fileview->setCurrentWidget(ui->page_list);
+		ui->tableView->setFocus();
+		break;
+	case Thumbnail:
+		ui->stackedWidget_fileview->setCurrentWidget(ui->page_thumbnail);
+		ui->thumbnailView->setFocus();
+		break;
+	}	
+}
+
 QImage MainWindow::queryThumbnail(QString const &path)
 {
 #ifdef Q_OS_WIN
@@ -1082,6 +1090,10 @@ QImage MainWindow::queryThumbnail(QString const &path)
 		}
 	}
 #endif
+	QFileInfo fi(path);
+	if (fi.isDir()) {
+		return global->folder_icon;
+	}
 
 	auto task = m->thumbnail_loader.query(path);
 	if (task) {
@@ -1191,7 +1203,8 @@ QIcon MainWindow::getIcon(const FileInfo2 &info)
 		return info.icon;
 	}
 	if (info.isdir) {
-		return iconprov.icon(QFileIconProvider::Folder);
+		// return iconprov.icon(QFileIconProvider::Folder);
+		return QIcon(QPixmap::fromImage(global->folder_icon));
 	} else {
 		auto it = m->icon_cache.find(info.path);
 		if (it != m->icon_cache.end()) {
@@ -1234,10 +1247,9 @@ QString MainWindow::locationText(FolderTreeItem *item) const
 	return loc;	
 }
 
-QString MainWindow::currentLocation() const
+QString MainWindow::location(FolderTreeItem const *item) const
 {
 	QString loc;
-	auto item = ui->treeView->currentItem();
 	if (item) {
 		loc = item->data(0, PathRole).toString();
 		if (loc.isEmpty()) {
@@ -1255,10 +1267,43 @@ QString MainWindow::currentLocation() const
 	return loc;
 }
 
+QString MainWindow::currentLocation() const
+{
+	auto item = ui->treeView->currentItem();
+	return location(item);
+}
+
 QString MainWindow::currentFilePath()
 {
 	auto index = ui->tableView->currentIndex();
 	return ui->tableView->model()->data(index, PathRole).toString();
+}
+
+bool MainWindow::isDir(FolderTreeItem *item) const
+{
+	QString loc = location(item);
+	if (loc.isEmpty()) return false;
+
+	m->thumbnail_loader.clearRequests();
+
+	bool ok = false;
+	if (loc.startsWith((misc::str)prefix_mycomputer)) {
+		ok = true;
+	} else if (loc.startsWith((misc::str)prefix_bookmark)) {
+		ok = true;
+	} else if (loc.startsWith((misc::str)prefix_itemidlist)) {
+		ok = true;
+	} else {
+#ifdef Q_OS_WIN
+		loc = loc.replace('/', '\\');
+#endif
+		QFileInfo info(loc);
+		if (info.isDir()) {
+			ok = true;
+			return true;
+		}
+	}
+	return false;
 }
 
 void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderTreeItem *previous)
@@ -1424,7 +1469,7 @@ void MainWindow::openDir(ItemIdList const &iidl)
 {
 	clearAllFilters(true);
 
-	setFocusFolderTree();
+	// setFocusFolderTree();
 
 	setCurrentIIDL(iidl);
 	FolderTreeItem *item;
@@ -1440,6 +1485,11 @@ void MainWindow::openDir(ItemIdList const &iidl)
 	}
 }
 
+bool MainWindow::isAddressBarVisible() const
+{
+	return ui->frame_tool_bar->isVisible();
+}
+
 void MainWindow::setAddressBarVisible(bool visible)
 {
 	if (visible) {
@@ -1450,7 +1500,7 @@ void MainWindow::setAddressBarVisible(bool visible)
 		ui->frame_tool_bar->setVisible(true);
 		ui->lineEdit_address->setFocus();
 		ui->lineEdit_address->selectAll();
-	} else {
+	} else if (isAddressBarVisible()) {
 		ui->frame_tool_bar->setVisible(false);
 		if (m->focus_widget) {
 			m->focus_widget->setFocus();

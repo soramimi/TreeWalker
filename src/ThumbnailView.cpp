@@ -20,6 +20,7 @@ public:
 	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
 	{
 		ThumbnailView *widget = qobject_cast<ThumbnailView *>(parent());
+		Q_ASSERT(widget);
 
 		QColor filtered_bg_color = incrementalsearch::filtered_bg_color();
 		QColor highlight_bg_color = incrementalsearch::highlight_bg_color();
@@ -45,7 +46,7 @@ public:
 
 		QStyleOptionViewItem o1;
 		initStyleOption(&o1, index);
-		o1.state = QStyle::State_Selected | QStyle::State_Active;
+		o1.state = option.state;//QStyle::State_Selected | QStyle::State_Active;
 		o1.rect = option.rect;//.adjusted(4, 4, -4, -4);
 		o1.showDecorationSelected = true;
 		int f = 0;
@@ -59,11 +60,11 @@ public:
 		case 2: alpha = 0.5;  break;
 		case 3: alpha = 1.0;  break;
 		}
+alpha = 1.0;
 		if (alpha > 0) {
 			painter->save();
-alpha = 1.0;
 			painter->setOpacity(alpha);
-			qApp->style()->drawPrimitive(QStyle::PE_PanelItemViewItem, &o1, painter, 0);
+			qApp->style()->drawPrimitive(QStyle::PE_PanelItemViewItem, &o1, painter, widget);
 			painter->restore();
 			if (selected) {
 				MyCommonStyleBase::drawFrame(painter, o1.rect, Qt::black, Qt::black);
@@ -171,7 +172,7 @@ alpha = 1.0;
 
 
 struct ThumbnailView::Private {
-	ThumbnailViewDelegate item_delegate;
+	ThumbnailViewDelegate *item_delegate;
 	// IncrementalSearchFilter filter;
 };
 
@@ -189,7 +190,8 @@ ThumbnailView::ThumbnailView(QWidget *parent)
 	: QListView(parent)
 	, m(new Private)
 {
-	setItemDelegate(&m->item_delegate);
+	m->item_delegate = new ThumbnailViewDelegate(this);
+	setItemDelegate(m->item_delegate);
 
 	setEditTriggers(QListView::NoEditTriggers);
 	setSelectionMode(QListView::ExtendedSelection);
@@ -240,7 +242,7 @@ const IncrementalSearchFilter &ThumbnailView::filter() const
 
 void ThumbnailView::setKind(Kind kind)
 {
-	m->item_delegate.kind_ = kind;
+	m->item_delegate->kind_ = kind;
 }
 
 void ThumbnailView::updateThumbnail(const QString &path, const QImage &image)
@@ -270,7 +272,7 @@ void ThumbnailView::selectRow(int row)
 
 void ThumbnailView::setLocation(const QString &path)
 {
-	m->item_delegate.setLocation(path);	
+	m->item_delegate->setLocation(path);	
 }
 
 void ThumbnailView::selectFirstItem()
@@ -326,7 +328,7 @@ QVariant ThumbnailListModel::data(const QModelIndex &index, int role) const
 	} else if (role == Qt::SizeHintRole) {
 		return QSize(128, 128);
 	} else if (role == Qt::DecorationRole) {
-		return QIcon(":/folder.png");
+		return global->folder_icon;
 	} else if (role == PathRole) {
 		return QString("/path/to/file");
 	}

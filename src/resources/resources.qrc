@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/">
         <file>image/zipicon.png</file>
+        <file>image/folder.png</file>
     </qresource>
 </RCC>

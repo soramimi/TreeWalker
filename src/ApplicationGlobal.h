@@ -34,6 +34,7 @@ struct ApplicationGlobal {
 	QString profiles_xml_path;
 	QColor panel_bg_color;
 
+	QImage folder_icon;
 	QImage zip_file_icon;
 
 	ApplicationSettings appsettings;

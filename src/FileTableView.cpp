@@ -93,6 +93,11 @@ public:
 	Kind kind_ = Kind::File;
 	QString location_;
 
+	FileTableItemDelegate(QObject *parent = nullptr)
+		: QStyledItemDelegate(parent)
+	{
+	}
+	
 	void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const
 	{
 		if (FileTableView const *w = qobject_cast<FileTableView const *>(option.widget)) {
@@ -150,16 +155,16 @@ public:
 
 
 struct FileTableView::Private {
-	FileTableItemDelegate item_delegate;
+	FileTableItemDelegate *item_delegate;
 	Kind kind = Kind::File;
-	// IncrementalSearchFilter filter;
 };
 
 FileTableView::FileTableView(QWidget *parent)
 	: QTableView(parent)
 	, m(new Private)
 {
-	setItemDelegate(&m->item_delegate);
+	m->item_delegate = new FileTableItemDelegate(this);
+	setItemDelegate(m->item_delegate);
 	setShowGrid(false);
 	setSelectionBehavior(QAbstractItemView::SelectRows);
 	setSelectionMode(QAbstractItemView::ExtendedSelection);
@@ -187,12 +192,12 @@ IncrementalSearchFilter const &FileTableView::filter() const
 
 void FileTableView::setLocation(const QString &loc)
 {
-	m->item_delegate.setLocation(loc);
+	m->item_delegate->setLocation(loc);
 }
 
 void FileTableView::setKind(Kind kind)
 {
-	m->item_delegate.kind_ = kind;
+	m->item_delegate->kind_ = kind;
 }
 
 Kind FileTableView::kind() const

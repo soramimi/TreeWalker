@@ -203,11 +203,17 @@ public:
 	}
 	QVariant data(const QModelIndex &index, int role) const
 	{
-		if (role == IidlRole) {
-			qDebug();
-		}
-		if (auto item = find(index)) {
-			return item->data(0, role);
+		FolderTreeItem *item = find(index);
+		if (item) {
+			switch (role) {
+			case Qt::DecorationRole:
+				if (global->mainwindow->isDir(item)) {
+					return QIcon(QPixmap::fromImage(global->folder_icon));
+				}
+				break;
+			default:
+				return item->data(0, role);
+			}
 		}
 		return {};
 	}

@@ -11,6 +11,7 @@ ApplicationGlobal::ApplicationGlobal()
 	shapi = std::make_shared<WindowsShellAPI>();
 #endif
 	{
+		folder_icon = QImage(":/image/folder.png");
 		zip_file_icon = QImage(":/image/zipicon.png");
 	}
 }
