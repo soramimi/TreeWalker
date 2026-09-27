@@ -47,7 +47,12 @@ int FileItemModel::count() const
 	return indices_.size();
 }
 
-int FileItemModel::unfilteredRow(int row)
+int FileItemModel::unfilteredCount() const
+{
+	return items_.size();
+}
+
+int FileItemModel::unfilteredRow(int row) const
 {
 	if (row >= 0) {
 		size_t cnt = indices_.size();

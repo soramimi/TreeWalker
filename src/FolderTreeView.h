@@ -74,8 +74,6 @@ private:
 	struct Private;
 	Private *m;
 
-	// IncrementalSearchFilter makeIncrementalSearchFilter() const;
-	
 	void _set_filter(const QString &filter_text);
 	const IncrementalSearchFilter &filter() const;
 protected:
@@ -103,7 +101,7 @@ public:
 	void setExpanded(FolderTreeItem *item, bool f);
 
 	void setFilter(QString const &filter_text);
-	
+
 protected slots:
 	void currentChanged(const QModelIndex &current, const QModelIndex &previous);
 private slots:

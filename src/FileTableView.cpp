@@ -102,7 +102,8 @@ public:
 	{
 		if (FileTableView const *w = qobject_cast<FileTableView const *>(option.widget)) {
 			FileInfo2 const *fileinfo = w->model()->fileinfo(index);
-			Q_ASSERT(fileinfo);
+			if (!fileinfo) return;
+			// Q_ASSERT(fileinfo);
 
 			int col = index.column();
 			QStyleOptionViewItem o;

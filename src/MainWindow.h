@@ -75,7 +75,6 @@ public:
 	ViewMode viewmode() const;
 	void setViewMode(ViewMode mode);
 	
-	QString locationText(FolderTreeItem *item) const;
 	QString location(FolderTreeItem const *item) const;
 	QString currentLocation() const;
 	QString currentFilePath();
@@ -92,6 +91,26 @@ public:
 	void setFocusItemsView();
 	FileItemModel *fileitemmodel();
 	QIcon getIcon(const FileInfo2 &info);
+	
+public:
+	struct LocationInfo {
+		enum Kind {
+			Invalid,
+			File,
+			Directory,
+		};
+		Kind kind = Invalid;
+		QString location;
+		std::string_view prefix;
+		
+		operator bool () const
+		{
+			return kind != Invalid;
+		}
+	};
+	LocationInfo locationInfo(QString const &loc) const;
+	LocationInfo locationInfo(FolderTreeItem *item) const;
+	bool isDir(FolderTreeItem *item) const;
 private:
 	void clearIconCache();
 private slots:
@@ -161,10 +180,12 @@ private:
 	void setIncrementalSearchText(const QString &text);
 	MainWindow::FilterTarget filtertarget() const;
 	void updateStatusBarText();
+	void updateStatusBarText2();
 	
 	bool isIncrementalSearching() const;
-	void clearAllFilters(bool clear_file_items);
-	void clearFilterText();
+	void clearFileItems();
+	void clearAllFilters();
+	bool handleTabKeyPressed();
 protected:
 	bool acceptKeyEvent(QKeyEvent *event);
 	bool eventFilter(QObject *watched, QEvent *event);
@@ -177,8 +198,6 @@ private slots:
 	// QObject interface
 	void on_treeView_collapsed(const QModelIndex &index);
 	
-public:
-	bool isDir(FolderTreeItem *item) const;
 };
 
 class VirtualFileSystem {

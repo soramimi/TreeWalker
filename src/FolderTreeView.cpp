@@ -408,7 +408,7 @@ public:
 		IncrementalSearchFilter const &filter = treeview->filter();
 		FolderTreeItem *item = treeview->itemFromIndex(index);
 		QString text = opt.text;
-		QString extext = global->mainwindow->locationText(item);
+		QString extext = global->mainwindow->location(item);
 
 		if (filter && !extext.isEmpty()) {
 			text = extext;
@@ -565,16 +565,18 @@ void FolderTreeView::_set_filter(QString const &filter_text)
 
 void FolderTreeView::setFilter(const QString &filter_text)
 {
+	auto curritem = currentItem();
+	
 	FolderTreeItem *restore_current_item = nullptr;
-	if (!filter() && !filter_text.isEmpty()) {
-		m->saved_current_item = currentItem();
+	if (!filter() && !filter_text.isEmpty()) { // フィルタ開始
+		m->saved_current_item = curritem;
 		m->saved_expansion_state.clear();
 		for (FolderTreeItem *item : m->model.item_set_) {
 			if (isExpanded(item)) {
 				m->saved_expansion_state.insert(item);
 			}
 		}
-	} else if (filter() && filter_text.isEmpty()) {
+	} else if (filter() && filter_text.isEmpty()) { // フィルタ終了
 		restore_current_item = m->saved_current_item;
 	}
 	
@@ -582,15 +584,14 @@ void FolderTreeView::setFilter(const QString &filter_text)
 	_set_filter(filter_text);
 	endResetModel();
 	
-	if (restore_current_item) {
+	if (restore_current_item) { // restore expansion state and current item
 		for (FolderTreeItem *item : m->saved_expansion_state) {
 			setExpanded(item, true);
 		}
 		if (m->model.item_set_.find(restore_current_item) != m->model.item_set_.end()) {
 			setCurrentItem(restore_current_item);
-			setExpanded(restore_current_item, true);
 		}
-	} else {
+	} else { // if no current item, set the first item as current
 		setCurrentIndex(model()->index(0, 0));
 	}
 }
@@ -605,7 +606,7 @@ void FolderTreeView::currentChanged(const QModelIndex &current, const QModelInde
 		qDebug() << loc;
 	}
 #endif
-	m->saved_current_item = current_item;
+	// m->saved_current_item = current_item;
 	setCurrentIndex(current);
 	emit currentItemChanged(current_item, previous_item);
 }

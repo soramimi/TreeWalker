@@ -51,7 +51,8 @@ private:
 	void updateIndices();
 public:
 	int count() const;
-	int unfilteredRow(int row);
+	int unfilteredCount() const;
+	int unfilteredRow(int row) const;
 	FileItemModel::Item *item(int row);
 	FileItemModel::Item const *item(int row) const;
 	void clearItems();
