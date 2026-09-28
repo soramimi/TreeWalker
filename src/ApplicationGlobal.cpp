@@ -21,6 +21,11 @@ ApplicationGlobal::ApplicationGlobal()
 	}
 }
 
+IncrementalSearchFilter ApplicationGlobal::makeIncrementalSearchFilter(const std::string &filtertext)
+{
+	return incremental_search->makeFilter(filtertext);
+}
+
 bool ApplicationGlobal::is_extension_archive_file(const QString &suffix)
 {
 	static std::unordered_set<QString> archive_extensions;

@@ -35,14 +35,6 @@ public:
 		Q_ASSERT(fileinfo);
 
 		QString name = index.data(Qt::DisplayRole).toString();
-		QString suffix;
-		{
-			int i = name.lastIndexOf('.');
-			if (i > 0) {
-				suffix = name.mid(i + 1);
-				name = name.left(i + 1);
-			}
-		}
 
 		QStyleOptionViewItem o1;
 		initStyleOption(&o1, index);
@@ -55,11 +47,11 @@ public:
 		bool mouseover = option.state & QStyle::State_MouseOver;
 		if (selected)  f |= 1;
 		if (mouseover) f |= 2;
-		switch (f) {
-		case 1: alpha = 0.8; break;
-		case 2: alpha = 0.5;  break;
-		case 3: alpha = 1.0;  break;
-		}
+		// switch (f) {
+		// case 1: alpha = 0.8; break;
+		// case 2: alpha = 0.5;  break;
+		// case 3: alpha = 1.0;  break;
+		// }
 alpha = 1.0;
 		if (alpha > 0) {
 			painter->save();
@@ -84,14 +76,24 @@ alpha = 1.0;
 		int w = o2.rect.width() - 8;
 		int h = w * 3 / 4;
 		QIcon icon;
-		if (!fileinfo->isdir && global->is_extension_archive_file(suffix)) {
-			icon = global->makeArchiveFileIcon(suffix);
-		} else {
-			QString text = index.data(PathRole).toString();
-			if (!text.isEmpty()) {
-				QImage image = widget->queryThubmanil(text);
-				if (!image.isNull()) {
-					icon = QIcon(QPixmap::fromImage(image));
+		{
+			QString suffix;
+			if (!fileinfo->isdir) {
+				int i = name.lastIndexOf('.');
+				if (i > 0) {
+					suffix = name.mid(i + 1);
+					// name = name.left(i + 1);
+				}
+			}
+			if (!fileinfo->isdir && global->is_extension_archive_file(suffix)) {
+				icon = global->makeArchiveFileIcon(suffix);
+			} else {
+				QString text = index.data(PathRole).toString();
+				if (!text.isEmpty()) {
+					QImage image = widget->queryThubmanil(text);
+					if (!image.isNull()) {
+						icon = QIcon(QPixmap::fromImage(image));
+					}
 				}
 			}
 		}
@@ -103,7 +105,7 @@ alpha = 1.0;
 		QTextOption textopt;
 		textopt.setAlignment((Qt::Alignment)(Qt::AlignCenter | Qt::AlignBottom));
 
-		// wip: bold rendering of file extensions
+		// bold rendering of file extensions
 		
 		bool strong_suffix = false;
 		if (fileinfo->isdir) {
@@ -112,35 +114,76 @@ alpha = 1.0;
 			strong_suffix = true;
 		}
 
-		QString text = name;
-		if (filter && *filter) {
-			incrementalsearch::Result match = global->incremental_search->match(text.toStdString(), *filter);
-			if (match) {
-				for (auto it = match.parts.rbegin(); it != match.parts.rend(); ++it) {
-					if (it->match) {
-						text.insert(it->pos + it->text.size(), "//>//");
-						text.insert(it->pos, "//<//");
+		struct Segment {
+			std::string text;
+			bool bold = false;
+			bool highlight = false;
+		};
+		std::vector<Segment> segments;
+		
+		{
+			std::string text = name.toStdString();
+	
+			if (filter && *filter) {
+				incrementalsearch::Result match = global->incremental_search->match(text, *filter);
+				for (auto it = match.parts.begin(); it != match.parts.end(); ++it) {
+					Segment a;
+					a.text = it->text;
+					a.highlight = (bool)it->match; // フィルタにマッチした部分は強調表示
+					segments.push_back(a);
+				}
+			} else {
+				Segment a;
+				a.text = text;
+				segments.push_back(a);
+			}
+
+			size_t i = segments.size();
+			while (i > 0) {
+				i--;
+				auto j = segments[i].text.rfind('.'); // 拡張子のドットを検索
+				if (j != std::string::npos) {
+					if (i == 0 && j == 0) { // ドットが先頭にある場合（例: ".gitignore"）は、拡張子として扱わない
+						// nop
+					} else { // ドットが見つかった場合、拡張子を分割して強調表示する
+						std::string split_before = segments[i].text.substr(0, j + 1);
+						std::string split_after = segments[i].text.substr(j + 1);
+						segments[i].text = split_before;
+						Segment a = segments[i];
+						a.text = split_after;
+						i++;
+						segments.insert(segments.begin() + i, a);
+						while (i < segments.size()) {
+							segments[i].bold = true;
+							i++;
+						}
+						break;
 					}
 				}
 			}
 		}
 
 		{
+			QString html;
+			for (Segment const &seg : segments) {
+				QString s = QString::fromStdString(seg.text).toHtmlEscaped();
+				if (seg.bold) {
+					s = "<b>" + s + "</b>";
+				}
+				if (seg.highlight) {
+					QString bgcolor = QString::asprintf("#%02x%02x%02x"
+														, highlight_bg_color.red()
+														, highlight_bg_color.green()
+														, highlight_bg_color.blue());
+					s = QString("<span style='background-color: %1;'>%2</span>")
+							.arg(bgcolor)
+							.arg(s);
+				}
+				html += s;
+			}
+			html = "<center>" + html + "</center>";
+			
 			QTextDocument doc;
-			QString html = text.toHtmlEscaped();
-			if (filter && *filter) {
-				QString bgcolor = QString::asprintf("#%02x%02x%02x"
-													, highlight_bg_color.red()
-													, highlight_bg_color.green()
-													, highlight_bg_color.blue());
-				html.replace("//&gt;//", "</span>");
-				html.replace("//&lt;//", QString("<span style='background-color: %1;'>").arg(bgcolor));
-			}
-			html = "<center>" + html;
-			if (strong_suffix && !suffix.isEmpty()) {
-				html += "<b>" + suffix.toHtmlEscaped() + "</b>";
-			}
-			html += "</center>";
 			doc.setHtml(html);
 			doc.setDefaultFont(o2.font);
 			doc.setTextWidth(o2.rect.width());

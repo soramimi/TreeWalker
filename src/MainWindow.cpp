@@ -1010,6 +1010,12 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 					on_action_view_thumbnails_triggered();
 					return true;
 				}
+				if (text == "\\") {
+					if (focuswidget != ui->lineEdit_address) {
+						setHiddenFilesVisible(!hiddenFilesVisible());
+						return true;
+					}
+				}
 			}
 			if (focuswidget == ui->treeView) {
 				if (ctrl) {
@@ -1114,12 +1120,12 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 		case Qt::Key_F5:
 			updateViews();
 			return;
-		case Qt::Key_Period:
-			if (focuswidget == ui->lineEdit_address) {
-				return;
-			}
-			setHiddenFilesVisible(!hiddenFilesVisible());
-			return;
+		// case Qt::Key_Period:
+		// 	if (focuswidget == ui->lineEdit_address) {
+		// 		return;
+		// 	}
+		// 	setHiddenFilesVisible(!hiddenFilesVisible());
+		// 	return;
 		case Qt::Key_Right:
 			if (focuswidget == ui->treeView) {
 				if (!isIncrementalSearching()) {
@@ -1212,7 +1218,9 @@ QString MainWindow::typeText(FileInfo2 const &info)
 	} else {
 		QString name = info.name;
 		int i = name.lastIndexOf('.');
-		if (i >= 0) {
+		if (i == 0) { // 先頭のドットは拡張子ではない
+			// nop
+		} else if (i > 0) {
 			return name.mid(i + 1);
 		}
 	}
