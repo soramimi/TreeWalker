@@ -977,12 +977,12 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			case Qt::Key_Escape:
 				if (isIncrementalSearching()) {
 					clearAllFilters();
-				} else if (focuswidget == ui->menuBar) {
+				} else if (focuswidget == ui->lineEdit_address) {
 					setAddressBarVisible(false);
+					setFocusFolderTree();
 					break;
 				} else {
 					setAddressBarVisible(false);
-					setFocusFolderTree();
 				}
 				return true;
 			case Qt::Key_Home:
