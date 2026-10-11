@@ -108,7 +108,7 @@ public:
 			return kind != Invalid;
 		}
 	};
-	LocationInfo locationInfo(QString const &loc) const;
+	LocationInfo locationInfo(QString loc) const;
 	LocationInfo locationInfo(FolderTreeItem *item) const;
 	bool isDir(FolderTreeItem *item) const;
 private:

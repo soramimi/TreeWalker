@@ -1328,7 +1328,7 @@ QString MainWindow::currentLocation() const
 	return location(item);
 }
 
-MainWindow::LocationInfo MainWindow::locationInfo(QString const &loc) const
+MainWindow::LocationInfo MainWindow::locationInfo(QString loc) const
 {
 	if (loc.isEmpty()) return {};
 	
