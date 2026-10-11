@@ -15,11 +15,13 @@ private:
 	std::condition_variable cv_;
 	bool interrupted_ = false;
 	bool refresh_requested_ = false;
+	bool ready_ = false; // 最初の列挙が完了した
 	std::vector<FileInfo2> files_;
 public:
 	NetworkDiscoveryThread();
 	~NetworkDiscoveryThread();
 	void start();
+	bool isReady() const; // 最初の列挙が完了したか
 	void refresh(); // 待機中なら間隔を待たずに再列挙させる
 	void detach();
 	std::vector<FileInfo2> files() const;

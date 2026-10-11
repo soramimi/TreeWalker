@@ -59,9 +59,12 @@ void NetworkDiscoveryThread::start()
 					emit filesChanged();
 				}
 			}
+			bool first_completed = false;
 			{
 				std::unique_lock<std::mutex> lock(mutex_);
 				if (interrupted_) break;
+				first_completed = !ready_;
+				ready_ = true;
 				// 今回の列挙で見つからなかった項目を取り除く
 				auto removed = std::remove_if(files_.begin(), files_.end(), [&](FileInfo2 const &f){
 					return std::find(seen.begin(), seen.end(), f.iidl) == seen.end();
@@ -84,11 +87,17 @@ void NetworkDiscoveryThread::start()
 					}
 				}
 			}
-			if (pending) {
+			if (pending || first_completed) {
 				emit filesChanged();
 			}
 		}
 	});
+}
+
+bool NetworkDiscoveryThread::isReady() const
+{
+	std::lock_guard<std::mutex> lock(mutex_);
+	return ready_;
 }
 
 void NetworkDiscoveryThread::refresh()

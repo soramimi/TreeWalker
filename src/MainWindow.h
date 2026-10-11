@@ -199,6 +199,7 @@ private slots:
 	void on_treeView_collapsed(const QModelIndex &index);
 #ifdef Q_OS_WIN
 	void onNetworkFilesChanged();
+	void updateNetworkTree();
 #endif
 };
 

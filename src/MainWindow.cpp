@@ -76,6 +76,8 @@ struct MainWindow::Private {
 	ThumbnailLoader thumbnail_loader;
 	StatusLabel *status_label;
 	QTimer update_list_timer;
+	QTimer network_changed_timer;
+	bool suppress_current_changed = false;
 	FileSystemProviderPtr fs_factory;
 	FolderTreeItem *my_computer_item;
 	FolderTreeItem *drive_root;
@@ -161,6 +163,8 @@ MainWindow::MainWindow(QWidget *parent)
 	});
 
 #ifdef Q_OS_WIN
+	m->network_changed_timer.setSingleShot(true);
+	connect(&m->network_changed_timer, &QTimer::timeout, this, &MainWindow::updateNetworkTree);
 	connect(&m->network_discovery_thread, &NetworkDiscoveryThread::filesChanged, this, &MainWindow::onNetworkFilesChanged);
 
 	m->network_discovery_thread.start();
@@ -224,14 +228,78 @@ void MainWindow::reloadContents()
 #ifdef Q_OS_WIN
 void MainWindow::onNetworkFilesChanged()
 {
-	qDebug() << Q_FUNC_INFO;
+	// 探索スレッドからの通知は頻繁なので、まとめてから反映する
+	if (!m->network_changed_timer.isActive()) {
+		m->network_changed_timer.start(500);
+	}
+}
 
-	auto item = ui->treeView->itemFromIidl(FileItem::getNetwork().idlist());
-	if (item) {
-		addPlaceholder(item);
-		if (item == ui->treeView->currentItem()) {
-			fetchSubFolders(item);
+/**
+ * @brief ネットワーク探索の結果をツリーと右ペインに反映する
+ *
+ * ツリーの選択状態を変えずに更新する。
+ * 選択が「ネットワーク」の配下にあるときは、再構築中の currentItemChanged を抑止して選択を復元する。
+ */
+void MainWindow::updateNetworkTree()
+{
+	if (isIncrementalSearching()) return;
+
+	FolderTreeItem *net = ui->treeView->itemFromIidl(FileItem::getNetwork().idlist());
+	if (!net) return;
+
+	FolderTreeItem *cur = ui->treeView->currentItem();
+	const bool cur_is_net = (cur == net);
+	bool cur_in_net = false;
+	for (FolderTreeItem *p = cur; p; p = p->parent()) {
+		if (p == net) {
+			cur_in_net = true;
+			break;
 		}
+	}
+	ItemIdList cur_iidl;
+	if (cur) {
+		cur_iidl = cur->data(0, IidlRole).value<ItemIdList>();
+	}
+
+	bool loaded = false; // 子の一覧を一度でも作ったか
+	for (int i = 0; i < net->childCount(); i++) {
+		if ((Kind)net->child(i)->data(0, KindRole).toInt() != Kind::Placeholder) {
+			loaded = true;
+			break;
+		}
+	}
+
+	bool restored = true;
+	if (loaded) {
+		if (!cur_in_net && !ui->treeView->isExpanded(net)) {
+			// 閉じている間は作り直さず、次に開いたときに読み直させる
+			while (net->childCount() > 0) {
+				delete net->takeChild(net->childCount() - 1);
+			}
+			addPlaceholder(net);
+		} else {
+			m->suppress_current_changed = true;
+			fetchSubFolders(net, false);
+			if (cur_is_net) {
+				ui->treeView->setCurrentItem(net);
+			} else if (cur_in_net) {
+				FolderTreeItem *item = ui->treeView->itemFromIidl(cur_iidl);
+				if (item) {
+					ui->treeView->setCurrentItem(item);
+				} else {
+					restored = false; // 選択中のホストが消えた
+				}
+			} else if (cur) {
+				ui->treeView->setCurrentItem(cur);
+			}
+			m->suppress_current_changed = false;
+		}
+	}
+
+	if (!restored) {
+		on_treeView_currentItemChanged(ui->treeView->currentItem(), nullptr);
+	} else if (cur_is_net) {
+		updateFileView();
 	}
 }
 #endif
@@ -312,7 +380,6 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 #ifdef Q_OS_WIN
 	if (WindowsFileSystemProvider *wfs = dynamic_cast<WindowsFileSystemProvider *>(fs)) {
 		if (wfs->iidl() == FileItem::getNetwork().idlist()) {
-			m->network_discovery_thread.refresh(); // ネットワークを開いたら最新化を促す
 			std::vector<FileInfo2> dirs2 = m->network_discovery_thread.files();
 			for (FileInfo2 const &info : dirs2) {
 				if (info.isdir) {
@@ -647,6 +714,14 @@ void MainWindow::updateFileView()
 	loc.iidl = item->data(0, IidlRole).value<ItemIdList>();
 	loc.path = item->data(0, PathRole).toString();
 	m->current_location = loc;
+
+#ifdef Q_OS_WIN
+	// ネットワーク探索が未完了の間は、右ペインを空にして待つ（完了時に updateNetworkTree が再表示する）
+	if (loc.isDir() && !m->network_discovery_thread.isReady() && loc.iidl == FileItem::getNetwork().idlist()) {
+		refreshFileList2(loc, true);
+		return;
+	}
+#endif
 
 	if (loc.isDir()) {
 		auto fs = newFileSystemPtr(loc.iidl);
@@ -1389,6 +1464,8 @@ void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderT
 	(void)current;
 	(void)previous;
 
+	if (m->suppress_current_changed) return;
+
 	m->thumbnail_loader.clearRequests();
 	
 	ui->treeView->scrollTo(ui->treeView->indexFromItem(current), QTreeView::EnsureVisible);
@@ -1403,6 +1480,11 @@ void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderT
 
 	LocationInfo info = locationInfo(ui->treeView->currentItem());
 	if (info) {
+#ifdef Q_OS_WIN
+		if (current && current->data(0, IidlRole).value<ItemIdList>() == FileItem::getNetwork().idlist()) {
+			m->network_discovery_thread.refresh(); // ネットワークを選択したら最新化を促す
+		}
+#endif
 		updateFileView();
 	}
 	ui->lineEdit_address->setText(info.location);
