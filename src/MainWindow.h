@@ -197,7 +197,9 @@ private slots:
 	
 	// QObject interface
 	void on_treeView_collapsed(const QModelIndex &index);
-	
+#ifdef Q_OS_WIN
+	void onNetworkFilesChanged();
+#endif
 };
 
 class VirtualFileSystem {
