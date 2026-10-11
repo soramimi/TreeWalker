@@ -14,11 +14,13 @@ private:
 	mutable std::mutex mutex_;
 	std::condition_variable cv_;
 	bool interrupted_ = false;
+	bool refresh_requested_ = false;
 	std::vector<FileInfo2> files_;
 public:
 	NetworkDiscoveryThread();
 	~NetworkDiscoveryThread();
 	void start();
+	void refresh(); // 待機中なら間隔を待たずに再列挙させる
 	void detach();
 	std::vector<FileInfo2> files() const;
 signals:

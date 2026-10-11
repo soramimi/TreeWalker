@@ -23,6 +23,9 @@ void NetworkDiscoveryThread::start()
 	thread_ = std::thread([this]() {
 		using clock = std::chrono::steady_clock;
 		constexpr auto emit_interval = std::chrono::milliseconds(200);
+		constexpr std::chrono::seconds min_interval(5);
+		constexpr std::chrono::seconds max_interval(60);
+		std::chrono::seconds interval = min_interval;
 
 		while (1) {
 			std::vector<ItemIdList> seen;
@@ -67,9 +70,18 @@ void NetworkDiscoveryThread::start()
 					files_.erase(removed, files_.end());
 					pending = changed = true;
 				}
-				if (!changed) {
-					cv_.wait_for(lock, std::chrono::seconds(5));
+				if (changed) {
+					interval = min_interval;
+				} else {
+					// 変化がなければ再列挙の間隔を徐々に延ばす
+					cv_.wait_for(lock, interval, [this]{ return interrupted_ || refresh_requested_; });
 					if (interrupted_) break;
+					if (refresh_requested_) {
+						refresh_requested_ = false;
+						interval = min_interval;
+					} else {
+						interval = std::min(interval * 2, max_interval);
+					}
 				}
 			}
 			if (pending) {
@@ -77,6 +89,15 @@ void NetworkDiscoveryThread::start()
 			}
 		}
 	});
+}
+
+void NetworkDiscoveryThread::refresh()
+{
+	{
+		std::unique_lock<std::mutex> lock(mutex_);
+		refresh_requested_ = true;
+	}
+	cv_.notify_all();
 }
 
 void NetworkDiscoveryThread::detach()

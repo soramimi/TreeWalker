@@ -312,6 +312,7 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 #ifdef Q_OS_WIN
 	if (WindowsFileSystemProvider *wfs = dynamic_cast<WindowsFileSystemProvider *>(fs)) {
 		if (wfs->iidl() == FileItem::getNetwork().idlist()) {
+			m->network_discovery_thread.refresh(); // ネットワークを開いたら最新化を促す
 			std::vector<FileInfo2> dirs2 = m->network_discovery_thread.files();
 			for (FileInfo2 const &info : dirs2) {
 				if (info.isdir) {
