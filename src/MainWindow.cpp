@@ -161,19 +161,8 @@ MainWindow::MainWindow(QWidget *parent)
 	});
 
 #ifdef Q_OS_WIN
-	connect(&m->network_discovery_thread, &NetworkDiscoveryThread::filesChanged, [&](){
-		auto item = ui->treeView->itemFromIidl(FileItem::getNetwork().idlist());
-		if (item) {
-			addPlaceholder(item);
-			if (item == ui->treeView->currentItem()) {
-				fetchSubFolders(item);
-			}
-		}
-	});
-#endif
+	connect(&m->network_discovery_thread, &NetworkDiscoveryThread::filesChanged, this, &MainWindow::onNetworkFilesChanged);
 
-
-#ifdef Q_OS_WIN
 	m->network_discovery_thread.start();
 	m->fs_factory = FileSystemProviderPtr(new WindowsFileSystemProvider());
 #else
@@ -231,6 +220,21 @@ void MainWindow::reloadContents()
 	ui->treeView->setExpanded(m->drive_root, true);
 	ui->treeView->setCurrentItem(m->drive_root);
 }
+
+#ifdef Q_OS_WIN
+void MainWindow::onNetworkFilesChanged()
+{
+	qDebug() << Q_FUNC_INFO;
+
+	auto item = ui->treeView->itemFromIidl(FileItem::getNetwork().idlist());
+	if (item) {
+		addPlaceholder(item);
+		if (item == ui->treeView->currentItem()) {
+			fetchSubFolders(item);
+		}
+	}
+}
+#endif
 
 MainWindow::ViewMode MainWindow::viewmode() const
 {
@@ -297,6 +301,8 @@ bool MainWindow::hasSubDir(AbstractFileSystemProvider *fs, ItemIdList const &iid
 
 void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent, TreeInfo *find)
 {
+	qDebug() << Q_FUNC_INFO;
+
 	if (isIncrementalSearching()) return;
 
 	clearIconCache();
@@ -312,7 +318,7 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 					if (info.name == "." || info.name == "..") {
 						continue;
 					}
-					dirs.push_back(info);;
+					dirs.push_back(info);
 				}
 			}
 			goto happy;
