@@ -196,7 +196,7 @@ alpha = 1.0;
 			painter->restore();
 		}
 	}
-	void setLocation(const QString &loc);
+	void setPath(const QString &loc);
 };
 
 
@@ -299,9 +299,9 @@ void ThumbnailView::selectRow(int row)
 	}
 }
 
-void ThumbnailView::setLocation(const QString &path)
+void ThumbnailView::setPath(const QString &path)
 {
-	m->item_delegate->setLocation(path);	
+	m->item_delegate->setPath(path);	
 }
 
 void ThumbnailView::selectFirstItem()
@@ -385,7 +385,7 @@ QVariant ThumbnailListModel::data(const QModelIndex &index, int role) const
 }
 #endif
 
-void ThumbnailViewDelegate::setLocation(const QString &loc)
+void ThumbnailViewDelegate::setPath(const QString &loc)
 {
 	location = loc;
 }

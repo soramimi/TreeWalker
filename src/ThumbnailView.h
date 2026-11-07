@@ -34,7 +34,7 @@ public:
 	void updateThumbnail(QString const &path, QImage const &image);
 	QString currentPath() const;
 	void selectRow(int row);
-	void setLocation(QString const &path);
+	void setPath(QString const &path);
 
 	void selectFirstItem();
 	

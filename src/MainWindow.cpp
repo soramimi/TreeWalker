@@ -674,7 +674,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 	ui->tableView->setKind(loc.kind);
 	ui->thumbnailView->setKind(loc.kind);
 	ui->tableView->setPath(loc.path);
-	ui->thumbnailView->setLocation(loc.path);
+	ui->thumbnailView->setPath(loc.path);
 
 	updateStatusBarText2();
 
@@ -1076,6 +1076,10 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 					auto path = ui->tableView->currentPath();
 					clearAllFilters();
 					ui->tableView->setPath(path);
+				} else if (focuswidget == ui->thumbnailView) {
+					auto path = ui->thumbnailView->currentPath();
+					clearAllFilters();
+					ui->thumbnailView->setPath(path);
 				} else if (focuswidget == ui->lineEdit_address) {
 					setAddressBarVisible(false);
 					setFocusFolderTree();
@@ -1179,6 +1183,9 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 				return;
 			}
 			if (focuswidget == ui->thumbnailView) {
+				if (isIncrementalSearching()) {
+					clearAllFilters();
+				}
 				openTableItem(ui->thumbnailView->currentIndex());
 				return;
 			}
