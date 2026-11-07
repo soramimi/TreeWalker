@@ -3,8 +3,11 @@
 #include "WindowsShellAPI.h"
 #include "common/str.h"
 #include <QFileInfo>
+#include <QHash>
 #include <commoncontrols.h>
 #include <shlwapi.h>
+
+static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl, QHash<int, QIcon> &icon_cache);
 
 static inline WindowsShellAPI *shapi()
 {
@@ -28,6 +31,7 @@ bool WindowsFileSystemProvider::isPhysicalFilesystemFolder(void const *iidl)
 	hr = item->GetAttributes(
 				SFGAO_FOLDER | SFGAO_FILESYSTEM,
 				&attrs);
+	item->Release();
 
 	if (FAILED(hr)) return false;
 
@@ -178,6 +182,8 @@ struct WindowsFileSystemProvider::Private {
 	FileItem fileitem;
 	FileInfo2 fileinfo;
 	HIMAGELIST hImageList = nullptr;
+	bool is_network = false;
+	QHash<int, QIcon> network_icon_cache; // system image index -> icon
 };
 
 WindowsFileSystemProvider::WindowsFileSystemProvider(const QString &dir)
@@ -191,6 +197,7 @@ WindowsFileSystemProvider::WindowsFileSystemProvider(ItemIdList const &iidl)
 	: m(new Private)
 {
 	m->fileitem = FileItem::fromITEMIDLIST(iidl.iidl());
+	m->is_network = (m->fileitem.idlist() == FileItem::getNetwork().idlist());
 	updateImageList();
 }
 
@@ -240,7 +247,11 @@ bool WindowsFileSystemProvider::fetch()
 		m->children_pos++;
 	}
 	if (m->children_pos >= 0 && m->children_pos < m->children.size()) {
-		m->fileinfo = getFileInfo(m->hImageList, m->children[m->children_pos]);
+		if (m->is_network) {
+			m->fileinfo = getNetworkFileInfo(m->hImageList, m->children[m->children_pos], m->network_icon_cache);
+		} else {
+			m->fileinfo = getFileInfo(m->hImageList, m->children[m->children_pos]);
+		}
 		return true;
 	}
 	return false;
@@ -377,6 +388,45 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 			fi.modified = QDateTime();
 		}
 	}
+
+	return fi;
+}
+
+// ネットワーク直下の項目用の軽量版。
+// QFileInfo（UNCパスへのアクセス）や項目ごとのアイコン生成を避ける。
+static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl, QHash<int, QIcon> &icon_cache)
+{
+	if (iidl.size() < 2) return {};
+
+	ITEMIDLIST const *iidl_p = reinterpret_cast<ITEMIDLIST const *>(iidl.data());
+
+	SHFILEINFO sfinfo{};
+	SHGetFileInfo((wchar_t const *)iidl_p, 0, &sfinfo, sizeof(SHFILEINFO), SHGFI_PIDL | SHGFI_DISPLAYNAME | SHGFI_ATTRIBUTES | SHGFI_SYSICONINDEX);
+	if (sfinfo.dwAttributes == 0) {
+		return {};
+	}
+
+	FileInfo2 fi;
+	fi.path = WindowsShellAPI::getPathFromIDList(iidl_p);
+	if (fi.path.isEmpty() && !(sfinfo.dwAttributes & SFGAO_FOLDER)) {
+		return {};
+	}
+
+	fi.iidl = iidl;
+	fi.name = QString::fromUtf16((ushort const *)sfinfo.szDisplayName);
+	fi.isdir = fi.path.isEmpty() || (sfinfo.dwAttributes & SFGAO_FOLDER);
+
+	auto it = icon_cache.find(sfinfo.iIcon);
+	if (it == icon_cache.end()) {
+		QIcon icon;
+		HICON hIcon = ImageList_GetIcon(reinterpret_cast<HIMAGELIST>(hImageList), sfinfo.iIcon, ILD_NORMAL);
+		if (hIcon) {
+			icon = QIcon(QPixmap::fromImage(convertHIconToQImage(hIcon)));
+			DestroyIcon(hIcon);
+		}
+		it = icon_cache.insert(sfinfo.iIcon, icon);
+	}
+	fi.icon = it.value();
 
 	return fi;
 }
