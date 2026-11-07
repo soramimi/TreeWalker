@@ -8,3 +8,4 @@ subprojects/FileTypePlugin/_build/
 subprojects/IncrementalSearchPlugin/_build/
 _build/
 .vscode/
+subprojects/IncrementalSearchPlugin/_build/
