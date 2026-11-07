@@ -547,7 +547,7 @@ void FolderTreeView::_set_filter(QString const &filter_text)
 
 			std::vector<FolderTreeItem *> items;
 			auto AddItem = [&](auto recursive, FolderTreeItem *item)-> void {
-				if (global->incremental_search->match(item->text().toStdString(), m->filter)) {
+				if (global->incremental_search->match(fromQString(item->text()), m->filter)) {
 					// qDebug() << item->text();
 					if (!item->text().isEmpty()) {
 						items.push_back(item);

@@ -125,7 +125,7 @@ alpha = 1.0;
 			std::string text = name.toStdString();
 	
 			if (filter && *filter) {
-				incrementalsearch::Result match = global->incremental_search->match(text, *filter);
+				incrementalsearch::Result match = global->incremental_search->match(xstring(text), *filter);
 				for (auto it = match.parts.begin(); it != match.parts.end(); ++it) {
 					Segment a;
 					a.text = it->text;

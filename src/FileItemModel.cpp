@@ -29,7 +29,7 @@ void FileItemModel::updateIndices()
 		indices_.reserve(items_.size());
 		for (size_t i = 0; i < items_.size(); i++) {
 			Item const &item = items_[i];
-			if (global->incremental_search->match(item.name.toStdString(), filter_)) {
+			if (global->incremental_search->match(fromQString(item.name), filter_)) {
 				indices_.push_back(i);
 			}
 		}

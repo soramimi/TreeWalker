@@ -1,17 +1,16 @@
+
 #ifndef INCREMENTALSEARCH_H
 #define INCREMENTALSEARCH_H
 
-// #include "MyMecab.h"
 #include <QObject>
-
-//
+#include "IncrementalSearchFilter.h"
 
 namespace incrementalsearch {
 
 struct Element {
 	bool match = false;
 	struct Fragment {
-		std::string text;
+		xstring text;
 		size_t pos = 0;
 		size_t end = 0;
 	};
@@ -41,14 +40,13 @@ struct Result {
 struct Part {
 	size_t offset;
 	size_t length;
-	std::string text;
+	xstring text;
 };
 
 class Engine {
 private:
 	struct Private;
 	Private *m;
-public:
 public:
 	virtual ~Engine() {}
 	virtual bool open(char const *dicpath) = 0;
@@ -59,21 +57,6 @@ public:
 
 } // namespace incrementalsearch
 
-class IncrementalSearchFilter {
-public:
-	std::string original_text;
-	std::string katakana_text;
-public:
-	bool isEmpty() const
-	{
-		return original_text.empty();
-	}
-	operator bool () const
-	{
-		return !isEmpty();
-	}
-};
-
 class IncrementalSearch : public QObject {
 	Q_OBJECT
 private:
@@ -81,14 +64,14 @@ private:
 	Private *m;
 	incrementalsearch::Engine *mecab();
 	incrementalsearch::Engine const *mecab() const;
-	std::string to_kana(const std::string &text, std::vector<incrementalsearch::Element> *out) const;
+	xstring to_kana(const xstring &text, std::vector<incrementalsearch::Element> *out) const;
 public:
 	IncrementalSearch();
 	~IncrementalSearch();
 	virtual bool open();
 	virtual std::string convertRomajiToKatakana(std::string const &a);
 	virtual IncrementalSearchFilter makeFilter(const std::string &filtertext);
-	virtual incrementalsearch::Result match(const std::string &text, const IncrementalSearchFilter &filter) const;
+	virtual incrementalsearch::Result match(const xstring &text, const IncrementalSearchFilter &filter) const;
 };
 
 #endif // INCREMENTALSEARCH_H

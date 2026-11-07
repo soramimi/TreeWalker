@@ -559,7 +559,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		if (loc.isDir()) {
 			for (int row = 0; row < loc.files.size(); row++) {
 				FileInfo2 const &info = loc.files[row];
-				if (!global->incremental_search->match(info.name.toStdString(), filter)) {
+				if (!global->incremental_search->match(fromQString(info.name), filter)) {
 					continue;
 				}
 				if (!m->hidden_files_visible && info.ishidden) continue;
@@ -599,7 +599,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 	ui->tableView->reset();
 	ui->tableView->setKind(loc.kind);
 	ui->thumbnailView->setKind(loc.kind);
-	ui->tableView->setLocation(loc.path);
+	ui->tableView->setPath(loc.path);
 	ui->thumbnailView->setLocation(loc.path);
 
 	updateStatusBarText2();
@@ -962,10 +962,21 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 				return !(alt || ctrl) && appendCharToFilterText(text, target);
 			};
 
+			if (enter && shift) {
+				setFocusItemsView();
+				return true;
+			}
+			
 			switch (key) {
 			case Qt::Key_Tab:
 			case Qt::Key_Backtab:
 				if (handleTabKeyPressed()) {
+					return true;
+				}
+				break;
+			case Qt::Key_Backspace:
+				if (shift) {
+					setFocusFolderTree();
 					return true;
 				}
 				break;
@@ -975,8 +986,14 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 				}
 				break;
 			case Qt::Key_Escape:
-				if (isIncrementalSearching()) {
+				if (focuswidget == ui->treeView) {
+					auto *item = ui->treeView->currentItem();
 					clearAllFilters();
+					ui->treeView->setCurrentItem(item);
+				} else if (focuswidget == ui->tableView) {
+					auto path = ui->tableView->currentPath();
+					clearAllFilters();
+					ui->tableView->setPath(path);
 				} else if (focuswidget == ui->lineEdit_address) {
 					setAddressBarVisible(false);
 					setFocusFolderTree();
@@ -1063,21 +1080,19 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 			break;
 		case Qt::Key_Enter:
 		case Qt::Key_Return:
-			if (isIncrementalSearching()) {
-				if (focuswidget == ui->treeView) {
+			if (focuswidget == ui->treeView) {
+				if (isIncrementalSearching()) {
 					QString loc = locationInfo(ui->treeView->currentItem()).location;
 					clearAllFilters();
 					openDir(loc);
-				} else {
-					clearAllFilters();
 				}
-				return;
-			}
-			if (focuswidget == ui->treeView) {
 				setFocusItemsView();
 				return;
 			}
 			if (focuswidget == ui->tableView) {
+				if (isIncrementalSearching()) {
+					clearAllFilters();
+				}
 				openTableItem(ui->tableView->currentIndex());
 				return;
 			}
@@ -1092,7 +1107,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 			}
 			break;
 		case Qt::Key_Backspace:
-			if (focuswidget == ui->tableView || focuswidget == ui->thumbnailView) {
+			if (focuswidget == ui->treeView || focuswidget == ui->tableView || focuswidget == ui->thumbnailView) {
 				moveToParent();
 			}
 			return;

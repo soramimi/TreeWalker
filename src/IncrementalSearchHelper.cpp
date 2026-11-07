@@ -63,10 +63,10 @@ void drawText_filtered(QPainter *painter, const QStyleOptionViewItem &opt, const
 	bool done = false;
 	int x = rect.x();
 	if (filter && *filter) {
-		Result match = global->incremental_search->match(text.toStdString(), *filter);
+		Result match = global->incremental_search->match(fromQString(text), *filter);
 		if (match) {
 			for (Result::Part const &part : match.parts) {
-				QString s = QString::fromStdString(part.text);
+				QString s = toQString(part.text);
 				int w = painter->fontMetrics().horizontalAdvance(s);
 				QRect r = rect;
 				r.setLeft(x);

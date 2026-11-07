@@ -91,7 +91,7 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 class FileTableItemDelegate : public QStyledItemDelegate {
 public:
 	Kind kind_ = Kind::File;
-	QString location_;
+	QString path_;
 
 	FileTableItemDelegate(QObject *parent = nullptr)
 		: QStyledItemDelegate(parent)
@@ -143,7 +143,7 @@ public:
 				o.displayAlignment |= Qt::AlignRight;
 			}
 			bool strong_suffix = false;
-			if (location_.startsWith((misc::str)prefix_bookmark)) {
+			if (path_.startsWith((misc::str)prefix_bookmark)) {
 				// pass
 			} else if (fileinfo->isdir) {
 				// pass
@@ -153,9 +153,9 @@ public:
 			drawItemViewText(strong_suffix, w->style(), painter, &o, true, w->filter());
 		}
 	}
-	void setLocation(const QString &loc)
+	void setPath(const QString &path)
 	{
-		location_ = loc;
+		path_ = path;
 	}
 };
 
@@ -196,9 +196,9 @@ IncrementalSearchFilter const &FileTableView::filter() const
 	return model()->filter();
 }
 
-void FileTableView::setLocation(const QString &loc)
+void FileTableView::setPath(const QString &path)
 {
-	m->item_delegate->setLocation(loc);
+	m->item_delegate->setPath(path);
 }
 
 void FileTableView::setKind(Kind kind)
