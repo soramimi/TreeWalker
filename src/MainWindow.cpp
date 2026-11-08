@@ -638,7 +638,6 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 
 	auto *model = fileitemmodel();
 
-
 	QElapsedTimer t;
 	t.start();
 
@@ -679,6 +678,9 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 			}
 		}
 	}
+
+	ui->tableView->beginResetModel();
+	
 	const QString filter_text = filtertarget() == FilterTarget::FolderTreeSearch ? QString() : getIncrementalSearchText();
 	m->thumbnail_paths.clear();
 	if (loc.isDir()) for (auto const &item : items) {
@@ -692,6 +694,8 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		}
 	}
 
+	ui->tableView->endResetModel();
+	
 	ui->tableView->setKind(loc.kind);
 	ui->thumbnailView->setKind(loc.kind);
 	ui->tableView->setPath(loc.path);

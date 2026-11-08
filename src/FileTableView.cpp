@@ -7,11 +7,12 @@
 #include <QStyledItemDelegate>
 #include <QMouseEvent>
 #include <QApplication>
+#include <QHeaderView>
 #include "IncrementalSearchHelper.h"
 
 namespace {
 
-void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOptionViewItem *option, bool abbreviation, incrementalsearch::Result const &match)
+QRect drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOptionViewItem *option, bool abbreviation, incrementalsearch::Result const &match)
 {
 	bool enabled = (option->state & QStyle::State_Enabled);
 	p->save();
@@ -59,6 +60,8 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 	
 	QRect rName = p->fontMetrics().boundingRect(option->rect, flags, name);
 	incrementalsearch::drawText_fragments(p, *option, rName, name_parts);
+
+	QRect ret = rName;
 	
 	if (strong_suffix && !suffix.isEmpty()) {
 		p->save();
@@ -68,9 +71,13 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 		QRect r = rSuffix.translated(rName.width(), 0);
 		incrementalsearch::drawText_fragments(p, *option, r, incrementalsearch::textFragments(match, suffix_offset));
 		p->restore();
+
+		ret = ret.united(r);
 	}
 	
 	p->restore();
+
+	return ret;
 }
 
 } // namespace
@@ -92,6 +99,8 @@ public:
 			if (!fileinfo) return;
 			// Q_ASSERT(fileinfo);
 
+			QRect rIcon;
+			
 			int col = index.column();
 			QStyleOptionViewItem o;
 			initStyleOption(&o, index);
@@ -110,8 +119,8 @@ public:
 			}
 			if (col == 0) {
 				int z = o.rect.height() * 5 / 4;
-				QRect r = o.rect;
-				r.setWidth(r.height());
+				rIcon = o.rect;
+				rIcon.setWidth(rIcon.height());
 
 				QString suffix = fileinfo->name;
 				if (int i = suffix.lastIndexOf('.'); i > 0) {
@@ -119,9 +128,9 @@ public:
 				}
 				if (!fileinfo->isdir && global->is_extension_archive_file(suffix)) {
 					auto icon = global->makeArchiveFileIcon(suffix);
-					icon.paint(painter, r);
+					icon.paint(painter, rIcon);
 				} else {
-					o.icon.paint(painter, r);
+					o.icon.paint(painter, rIcon);
 				}
 				o.rect.adjust(z, 0, 0, 0);
 			}
@@ -138,6 +147,15 @@ public:
 				strong_suffix = global->appsettings.strongly_draw_file_suffix && (col == 0);
 			}
 			drawItemViewText(strong_suffix, w->style(), painter, &o, true, w->model()->matchText(index));
+			{
+				QPixmap tmp(1, 1);
+				QPainter p2(&tmp);
+				QRect r = drawItemViewText(strong_suffix, w->style(), &p2, &o, false, w->model()->matchText(index));
+				if (rIcon.isValid()) {
+					r = r.united(rIcon);
+				}
+				const_cast<FileTableView *>(w)->setColumnWidth(col, r.width() + 4);
+			}
 		}
 	}
 	void setPath(const QString &path)
@@ -150,6 +168,10 @@ public:
 struct FileTableView::Private {
 	FileTableItemDelegate *item_delegate;
 	Kind kind = Kind::File;
+	std::vector<int> column_width;
+	QTimer interval_timer_10ms;
+	int adjust_column_width_debounce = 0;
+	bool scrolled = false;
 };
 
 FileTableView::FileTableView(QWidget *parent)
@@ -161,6 +183,11 @@ FileTableView::FileTableView(QWidget *parent)
 	setShowGrid(false);
 	setSelectionBehavior(QAbstractItemView::SelectRows);
 	setSelectionMode(QAbstractItemView::ExtendedSelection);
+
+	// horizontalHeader()->setStretchLastSection(true);
+
+	connect(&m->interval_timer_10ms, &QTimer::timeout, this, &FileTableView::onIntervalTimer10ms);
+	m->interval_timer_10ms.start(10);
 }
 
 FileTableView::~FileTableView()
@@ -181,6 +208,56 @@ FileItemModel const *FileTableView::model() const
 IncrementalSearchFilter const &FileTableView::filter() const
 {
 	return model()->filter();
+}
+
+void FileTableView::adjustColumnWidth()
+{
+	int ncols = model()->columnCount();
+	for (int col = 0; col < ncols; ++col) {
+		if (col < m->column_width.size()) {
+			int w = m->column_width[col];
+			if (w > 0) {
+				horizontalHeader()->resizeSection(col, w);
+			}
+		}
+	}
+}
+
+void FileTableView::onIntervalTimer10ms()
+{
+	if (m->adjust_column_width_debounce > 0) {
+		m->adjust_column_width_debounce--;
+		if (m->adjust_column_width_debounce == 0) {
+			adjustColumnWidth();
+		}
+	}
+}
+
+void FileTableView::scrollTo(const QModelIndex &index, ScrollHint hint)
+{
+	QTableView::scrollTo(index, hint);
+	m->scrolled = true;
+}
+
+void FileTableView::resetColumnWidth()
+{
+	m->column_width.clear();
+}
+
+void FileTableView::setColumnWidth(int col, int width)
+{
+	int ncols = model()->columnCount();
+	m->column_width.resize(ncols);
+	if (col >= 0 && col < ncols) {
+		if (m->column_width[col] < width) {
+			m->column_width[col] = width;
+		}
+	}
+	if (m->scrolled) {
+		// ユーザーが horizontalHeader を操作してサイズ変更した場合はここには来ない
+		m->scrolled = false;
+		m->adjust_column_width_debounce = 50;
+	}
 }
 
 void FileTableView::setPath(const QString &path)
@@ -250,6 +327,7 @@ void FileTableView::beginResetModel()
 void FileTableView::endResetModel()
 {
 	model()->endResetModel();
+	resetColumnWidth();
 }
 
 void FileTableView::_set_filter(QString const &filter_text)
@@ -272,6 +350,8 @@ void FileTableView::mouseDoubleClickEvent(QMouseEvent *e)
 
 void FileTableView::paintEvent(QPaintEvent *event)
 {
+	// resetColumnWidth();
+	
 	IncrementalSearchFilter const *f = &filter();
 	if (f && *f) {
 		QPainter pr(viewport());

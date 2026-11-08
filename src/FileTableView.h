@@ -17,6 +17,9 @@ private:
 	Private *m;
 	void _set_filter(const QString &filter_text);
 	IncrementalSearchFilter const &filter() const;
+	void resetColumnWidth();
+	void setColumnWidth(int col, int width);
+	void adjustColumnWidth();
 protected:
 	void beginResetModel();
 	void endResetModel();
@@ -51,6 +54,12 @@ signals:
 	// QWidget interface
 protected:
 	void paintEvent(QPaintEvent *event);
+private slots:
+	void onIntervalTimer10ms();
+	
+	// QAbstractItemView interface
+public:
+	void scrollTo(const QModelIndex &index, ScrollHint hint = EnsureVisible) override;
 };
 
 #endif // FILETABLEVIEW_H
