@@ -27,6 +27,8 @@ ApplicationGlobal *global = nullptr;
 int runModelNotificationTests(int argc, char **argv);
 int runAddressInputTests(int argc, char **argv);
 int runSpecialLocationTests(int argc, char **argv);
+int runStartupSettingsTests(int argc, char **argv);
+int runReadingSearchTests(int argc, char **argv);
 
 #ifdef Q_OS_WIN
 int runNetworkDiscoveryTests(int argc, char **argv);
@@ -353,6 +355,8 @@ int main(int argc, char **argv)
 	result |= runModelNotificationTests(argc, argv);
 	result |= runAddressInputTests(argc, argv);
 	result |= runSpecialLocationTests(argc, argv);
+	result |= runStartupSettingsTests(argc, argv);
+	result |= runReadingSearchTests(argc, argv);
 #ifdef Q_OS_WIN
 	result |= runNetworkDiscoveryTests(argc, argv);
 	result |= runComWorkerTests(argc, argv);

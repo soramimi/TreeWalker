@@ -9,6 +9,7 @@
 #include <thread>
 #include "common/joinpath.h"
 #include "ApplicationGlobal.h"
+#include "SettingsDialog.h"
 #include "Theme.h"
 #include "../subprojects/FileTypePlugin/src/FileTypeInterface.h"
 #include "../subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
@@ -151,6 +152,7 @@ int main(int argc, char *argv[])
 	global->generic_config_dir = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation);
 	global->app_config_dir = global->generic_config_dir / global->organization_name / global->application_name;
 	global->config_file_path = joinpath(global->app_config_dir, global->application_name + ".ini");
+	SettingsDialog::loadSettings(&global->appsettings);
 
 	
 	// load plugins

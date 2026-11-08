@@ -1,19 +1,24 @@
-# 回帰テスト（P1・P2-01〜P2-04）
+# 回帰テスト（P1・P2）
 
 ## Qt による画面・移動・探索の検証
 
 Qt 6 の Qt Test と MSVC の開発環境を使用する。Debug 構成では `_bin/incrementalsearchplugind.dll`、Release 構成では `_bin/incrementalsearchplugin.dll` が必要になる。対応する Qt とプラグインの依存 DLL が `PATH` から見つかるようにする。vcpkg を使用する環境では、該当構成の `bin` も追加する。
 
-リポジトリのルートで、MSVC の開発者用コマンドプロンプトから実行する。
+検索テストが最新の実装を使用するよう、先に IncrementalSearchPlugin をビルドする。リポジトリのルートで、MSVC の開発者用コマンドプロンプトから実行する。
 
 ```bat
+mkdir build\search-plugin
+cd build\search-plugin
+qmake ..\..\subprojects\IncrementalSearchPlugin\IncrementalSearchPlugin.pro CONFIG+=debug
+jom
+cd ..\..
 mkdir build\p1-tests
 cd build\p1-tests
-qmake ..\..\P1Tests.pro CONFIG+=debug
+qmake ..\..\Tests.pro CONFIG+=debug
 jom
 cd ..\..
 set QT_FORCE_STDERR_LOGGING=1
-_bin\TreeWalkerP1Tests.exe -platform offscreen
+_bin\TreeWalkerTests.exe -platform offscreen
 ```
 
 - `p1_regression.cpp` は本体のコードを使い、検索中の再構築、起動対象、無効な移動先での状態維持、通常フォルダ・ルートへの移動を検証する。外部アプリの起動は URL ハンドラーで捕捉する。
@@ -21,6 +26,8 @@ _bin\TreeWalkerP1Tests.exe -platform offscreen
 - `model_notifications_tests.cpp` は `QAbstractItemModelTester` を使用し、挿入・削除・再接続・検索切替と、詳細／サムネイルのリセット通知を検証する。
 - `address_input_tests.cpp` は実際のキー入力でアドレスの文字入力・編集・貼り付け、`Alt+D` / `Ctrl+L`、表示切替とフォーカス移動を検証する。貼り付けに使用したクリップボードは元の内容へ復元する。
 - `special_locations_tests.cpp` は一時 JSON を使用し、ブックマークの切替・空フォルダ・同名フォルダ・URL 起動・F5 再読込、My Computer の階層保持、パスのない Shell 行の PIDL による起動を検証する。HTTP / HTTPS の起動はハンドラーで捕捉し、ブラウザーは起動しない。
+- `startup_settings_tests.cpp` は一時 INI を使用し、保存値の再読み込み、欠損ファイル・キーの既定値、設定画面との一致、キャンセル時の設定保持を検証する。ユーザーの設定ファイルは使用しない。
+- `reading_search_tests.cpp` はプラグインに組み込まれた実際の MeCab 辞書を使用し、形態素をまたぐ読みの検索と、元文字列の復元・強調範囲を検証する。P2-06 の `nn` 変換は現行仕様を維持する。
 - `com_workers_tests.cpp` は Windows の実際の COM を使用し、初期化の入れ子と失敗、暗黙 MTA、スレッドごとの Shell 所有と解放、一覧・実画像のサムネイル取得、待機中の STA メッセージ処理を検証する。
 - 正常移動のテストは実行ディレクトリ内に一時フォルダを作り、終了時に削除する。非表示フォルダ配下ではなく、書き込み可能な通常のディレクトリから実行する。
 
