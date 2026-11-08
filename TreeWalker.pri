@@ -6,7 +6,7 @@ CONFIG += $$CPP_STD
 INCLUDEPATH += $$PWD/src
 INCLUDEPATH += $$PWD/../QtDarkStyle
 
-INCLUDEPATH += $$PWD/subproject/IncrementalSearchPlugin/src/
+INCLUDEPATH += $$PWD/subprojects/IncrementalSearchPlugin/src/
 
 win32:LIBS += -lcomctl32 -luser32 -lole32 -lgdi32
 
