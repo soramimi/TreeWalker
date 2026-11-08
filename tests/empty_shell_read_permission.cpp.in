@@ -1,0 +1,116 @@
+#include <shlobj.h>
+#include <iostream>
+#include <stdexcept>
+
+static void check(bool condition, char const *message)
+{
+	if (!condition) throw std::runtime_error(message);
+}
+
+struct EmptyEnumerator : IEnumIDList {
+	unsigned release_count = 0;
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void **) override { return E_NOINTERFACE; }
+	ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+	ULONG STDMETHODCALLTYPE Release() override { return ++release_count; }
+	HRESULT STDMETHODCALLTYPE Next(ULONG, PITEMID_CHILD *, ULONG *fetched) override
+	{
+		if (fetched) *fetched = 0;
+		return S_FALSE;
+	}
+	HRESULT STDMETHODCALLTYPE Skip(ULONG) override { return S_FALSE; }
+	HRESULT STDMETHODCALLTYPE Reset() override { return S_OK; }
+	HRESULT STDMETHODCALLTYPE Clone(IEnumIDList **) override { return E_NOTIMPL; }
+};
+
+struct FakeFolder : IShellFolder {
+	HRESULT result = S_FALSE;
+	IEnumIDList *enumerator = nullptr;
+	unsigned enum_calls = 0;
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID, void **) override { return E_NOINTERFACE; }
+	ULONG STDMETHODCALLTYPE AddRef() override { return 1; }
+	ULONG STDMETHODCALLTYPE Release() override { return 1; }
+	HRESULT STDMETHODCALLTYPE EnumObjects(HWND owner, SHCONTF flags, IEnumIDList **out) override
+	{
+		check(owner == nullptr, "Unexpected owner window");
+		check(flags == (SHCONTF_FOLDERS | SHCONTF_NONFOLDERS), "Unexpected enumeration flags");
+		++enum_calls;
+		*out = enumerator;
+		return result;
+	}
+	HRESULT STDMETHODCALLTYPE ParseDisplayName(HWND, IBindCtx *, LPWSTR, ULONG *, PIDLIST_RELATIVE *, ULONG *) override { return E_NOTIMPL; }
+	HRESULT STDMETHODCALLTYPE BindToObject(PCUIDLIST_RELATIVE, IBindCtx *, REFIID, void **) override { return E_NOTIMPL; }
+	HRESULT STDMETHODCALLTYPE BindToStorage(PCUIDLIST_RELATIVE, IBindCtx *, REFIID, void **) override { return E_NOTIMPL; }
+	HRESULT STDMETHODCALLTYPE CompareIDs(LPARAM, PCUIDLIST_RELATIVE, PCUIDLIST_RELATIVE) override { return E_NOTIMPL; }
+	HRESULT STDMETHODCALLTYPE CreateViewObject(HWND, REFIID, void **) override { return E_NOTIMPL; }
+	HRESULT STDMETHODCALLTYPE GetAttributesOf(UINT, PCUITEMID_CHILD_ARRAY, SFGAOF *) override { return E_NOTIMPL; }
+	HRESULT STDMETHODCALLTYPE GetUIObjectOf(HWND, UINT, PCUITEMID_CHILD_ARRAY, REFIID, UINT *, void **) override { return E_NOTIMPL; }
+	HRESULT STDMETHODCALLTYPE GetDisplayNameOf(PCUITEMID_CHILD, SHGDNF, STRRET *) override { return E_NOTIMPL; }
+	HRESULT STDMETHODCALLTYPE SetNameOf(HWND, PCUITEMID_CHILD, LPCWSTR, SHGDNF, PITEMID_CHILD *) override { return E_NOTIMPL; }
+};
+
+// Only the provider's surrounding state is replaced. The runner inserts the
+// unchanged production method below so the test cannot drift to a copied fix.
+class WindowsFileSystemProvider {
+	struct FileItem {
+		IShellFolder *folder;
+		bool valid;
+		explicit operator bool() const { return valid; }
+		IShellFolder *shfolder() const { return folder; }
+	};
+	struct Private { FileItem fileitem; } state_;
+	Private *m = &state_;
+public:
+	WindowsFileSystemProvider(IShellFolder *folder, bool valid = true)
+		: state_{{folder, valid}}
+	{
+	}
+	bool hasReadPermission() const;
+};
+
+@PRODUCTION_METHOD@
+
+int main()
+{
+	try {
+		FakeFolder folder;
+		WindowsFileSystemProvider provider(&folder);
+		check(provider.hasReadPermission(), "S_FALSE / NULL must be readable");
+		check(folder.enum_calls == 1, "Empty folder must be queried once");
+		std::cout << "PASS: S_FALSE / NULL is readable\n";
+
+		EmptyEnumerator empty;
+		folder.result = S_OK;
+		folder.enumerator = &empty;
+		check(provider.hasReadPermission(), "S_OK / empty enumerator must be readable");
+		check(empty.release_count == 1, "Successful enumerator must be released exactly once");
+		std::cout << "PASS: S_OK / empty enumerator is readable and released once\n";
+
+		folder.result = E_ACCESSDENIED;
+		folder.enumerator = nullptr;
+		check(!provider.hasReadPermission(), "Access denied must not be readable");
+		std::cout << "PASS: E_ACCESSDENIED is not readable\n";
+
+		folder.result = S_OK;
+		check(!provider.hasReadPermission(), "Malformed S_OK / NULL must fail safely");
+		std::cout << "PASS: S_OK / NULL fails safely\n";
+
+		folder.result = E_FAIL;
+		folder.enumerator = &empty;
+		check(!provider.hasReadPermission(), "Failed enumeration must not be readable");
+		check(empty.release_count == 2, "An enumerator returned on failure must still be released");
+		std::cout << "PASS: failed enumeration releases a returned interface\n";
+
+		unsigned const calls = folder.enum_calls;
+		WindowsFileSystemProvider invalid(&folder, false);
+		check(!invalid.hasReadPermission(), "Invalid FileItem must not be readable");
+		check(folder.enum_calls == calls, "Invalid FileItem must not enumerate");
+		std::cout << "PASS: invalid FileItem does not enumerate\n";
+
+		WindowsFileSystemProvider null_folder(nullptr);
+		check(!null_folder.hasReadPermission(), "Missing IShellFolder must fail safely");
+		std::cout << "PASS: missing IShellFolder fails safely\n";
+	} catch (std::exception const &error) {
+		std::cerr << "FAIL: " << error.what() << '\n';
+		return 1;
+	}
+}

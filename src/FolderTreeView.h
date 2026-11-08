@@ -18,7 +18,7 @@ private:
 	QString text_;
 	ItemIdList iidl_;
 	QMap<int, QVariant> data_map_;
-	FolderTreeItem *parent_;
+	FolderTreeItem *parent_ = nullptr;
 	std::vector<FolderTreeItem *> children_;
 	mutable std::unordered_map<void *, size_t> children_cache_; // pointer to index in children vector
 private:

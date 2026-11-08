@@ -1,4 +1,5 @@
 #include "AbstractFileSystemProvider.h"
+#include "BasicFileSystemProvider.h"
 
 
 #include <QFileIconProvider>
@@ -6,9 +7,31 @@
 #ifdef Q_OS_WIN
 #include "WindowsFileSystemProvider.h"
 #else
-#include "BasicFileSystemProvider.h"
 #include "xdg.h"
 #endif
+
+FileSystemProviderPtr createFileSystemProvider(ItemIdList const &iidl)
+{
+#ifdef Q_OS_WIN
+	ItemIdList location = iidl;
+	if (location.type() == ItemIdList::Type::PATH) {
+		QString path = location.path();
+		if (path.startsWith(QString::fromLatin1(prefix_mycomputer.data(), prefix_mycomputer.size()))) {
+			return std::make_shared<BasicFileSystemProvider>(ItemIdList{});
+		}
+		if (path.startsWith(QString::fromLatin1(prefix_itemidlist.data(), prefix_itemidlist.size()))) {
+			location = ItemIdList(path);
+		}
+	}
+	if (WindowsFileSystemProvider::isPhysicalFilesystemFolder(location)) {
+		QString path = location.path();
+		if (!path.isEmpty()) return std::make_shared<BasicFileSystemProvider>(path);
+	}
+	return std::make_shared<WindowsFileSystemProvider>(location);
+#else
+	return std::make_shared<BasicFileSystemProvider>(iidl);
+#endif
+}
 
 FileInfo2 desktopFileInfo()
 {

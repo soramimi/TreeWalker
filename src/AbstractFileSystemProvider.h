@@ -12,6 +12,9 @@ class AbstractFileSystemProvider;
 
 typedef std::shared_ptr<AbstractFileSystemProvider> FileSystemProviderPtr;
 
+// Construct providers on the thread that will use their Shell objects.
+FileSystemProviderPtr createFileSystemProvider(ItemIdList const &iidl);
+
 struct FileInfo2 {
 	ItemIdList iidl;
 	QString path;

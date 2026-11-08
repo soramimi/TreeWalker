@@ -1,7 +1,10 @@
 #include "WindowsShellAPI.h"
+#include "WindowsCom.h"
 
 #include <QDebug>
+#include <QCoreApplication>
 #include <QList>
+#include <QThread>
 #include <memory>
 #include <shlobj.h>
 #include <stdint.h>
@@ -113,27 +116,62 @@ bool iidlpop(std::vector<char> *iidl, std::vector<char> *last)
 
 // WindowsShellAPI
 
+static DWORD currentComThreadingModel()
+{
+	APTTYPE type;
+	APTTYPEQUALIFIER qualifier;
+	if (SUCCEEDED(CoGetApartmentType(&type, &qualifier))) {
+		// Another thread's MTA can be inherited by a thread which has never
+		// initialized COM. Such a thread still uses our Shell default of STA.
+		if ((type == APTTYPE_MTA && qualifier == APTTYPEQUALIFIER_NONE)
+			|| (type == APTTYPE_NA && qualifier == APTTYPEQUALIFIER_NA_ON_MTA)) {
+			return COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE;
+		}
+	}
+	return COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE;
+}
+
 struct WindowsShellAPI::Private {
+	WindowsComApartment apartment{currentComThreadingModel()};
 	IMalloc *pMalloc = nullptr;
 	IShellFolder *pDesktopFolder = nullptr;
+	~Private()
+	{
+		if (pDesktopFolder) pDesktopFolder->Release();
+		if (pMalloc) pMalloc->Release();
+	}
 };
 
 WindowsShellAPI::WindowsShellAPI()
 	: m(new Private)
 {
-	::SHGetMalloc(&m->pMalloc);
-	SHGetDesktopFolder(&m->pDesktopFolder);
+	if (!m->apartment.initialized()) {
+		qWarning() << "Cannot initialize Shell COM apartment:" << Qt::hex << m->apartment.result();
+		return;
+	}
+	HRESULT result = SHGetMalloc(&m->pMalloc);
+	if (FAILED(result)) {
+		qWarning() << "Cannot obtain Shell allocator:" << Qt::hex << result;
+		return;
+	}
+	result = SHGetDesktopFolder(&m->pDesktopFolder);
+	if (FAILED(result)) qWarning() << "Cannot obtain Desktop Shell folder:" << Qt::hex << result;
 }
 
 WindowsShellAPI::~WindowsShellAPI()
 {
-	m->pDesktopFolder->Release();
-
-	if (m->pMalloc) {
-		m->pMalloc->Release();
-	}
-
 	delete m;
+}
+
+WindowsShellAPI &WindowsShellAPI::forCurrentThread()
+{
+	thread_local WindowsShellAPI shell;
+	return shell;
+}
+
+bool WindowsShellAPI::isReady() const
+{
+	return m->apartment.initialized() && m->pDesktopFolder && m->pMalloc;
 }
 
 IMalloc *WindowsShellAPI::imalloc()
@@ -158,21 +196,22 @@ QByteArray WindowsShellAPI::buildITEMIDLIST(QList<QByteArray> const &in)
 
 IShellFolder *WindowsShellAPI::getDesktopShellFolder()
 {
-	return m->pDesktopFolder;
+	return isReady() ? m->pDesktopFolder : nullptr;
 }
 
 IShellFolder *WindowsShellAPI::getShellFolder(ITEMIDLIST const *iidl)
 {
-	if (iidl) {
+	if (isReady() && iidl) {
 		IShellFolder *shfolder = nullptr;
 		if (*(uint16_t const *)iidl == 0) {
-			SHGetDesktopFolder(&shfolder);
-			return shfolder;
+			m->pDesktopFolder->AddRef();
+			return m->pDesktopFolder;
 		}
 		HRESULT r = m->pDesktopFolder->BindToObject(iidl, 0, IID_IShellFolder, (void **)&shfolder);
 		if (r == NOERROR && shfolder) {
 			return shfolder;
 		}
+		if (shfolder) shfolder->Release();
 	}
 	return nullptr;
 }
@@ -185,16 +224,15 @@ IShellFolder *WindowsShellAPI::getShellFolder(QByteArray const &iidl)
 
 QByteArray WindowsShellAPI::parseDisplayName(QString path)
 {
+	if (!isReady() || path.isEmpty()) return {};
 	path = path.replace('/', '\\');
 	ITEMIDLIST *iidl = nullptr;
 	ULONG eaten = 0;
 	HRESULT r = m->pDesktopFolder->ParseDisplayName(0, 0, (wchar_t *)path.utf16(), &eaten, &iidl, 0);
-	if (r == NOERROR && iidl) {
-		QByteArray ba = WindowsShellAPI::getByteArrayFromITEMIDLIST(iidl);
-		imalloc()->Free(iidl);
-		return ba;
-	}
-	return QByteArray();
+	QByteArray result;
+	if (SUCCEEDED(r) && iidl) result = WindowsShellAPI::getByteArrayFromITEMIDLIST(iidl);
+	CoTaskMemFree(iidl);
+	return result;
 }
 
 QByteArray WindowsShellAPI::getByteArrayFromITEMIDLIST(ITEMIDLIST const *iidl)
@@ -223,19 +261,8 @@ QByteArray WindowsShellAPI::makeShellIDListArray_(const QList<QByteArray> &list)
 
 QList<QByteArray> WindowsShellAPI::listFromPath(QString path)
 {
-	QList<QByteArray> list;
-	if (m->pDesktopFolder) {
-		path = path.replace('/', '\\');
-		ITEMIDLIST *iidl = 0;
-		ULONG len = 0;
-		ULONG attr = 0;
-		m->pDesktopFolder->ParseDisplayName(0, 0, (wchar_t *)path.utf16(), &len, &iidl, &attr);
-		if (iidl) {
-			list = parseITEMIDLIST(iidl);
-			imalloc()->Free(iidl);
-		}
-	}
-	return list;
+	QByteArray idl = parseDisplayName(path);
+	return idl.isEmpty() ? QList<QByteArray>() : parseITEMIDLIST(reinterpret_cast<ITEMIDLIST const *>(idl.constData()));
 }
 
 QByteArray WindowsShellAPI::parent(const QByteArray &idl)
@@ -252,12 +279,7 @@ QByteArray WindowsShellAPI::parent(const QByteArray &idl)
 
 QString WindowsShellAPI::pathFromList(const ITEMIDLIST *iidl) const
 {
-	QString path;
-	wchar_t tmp[1000];
-	if (SHGetPathFromIDListW(iidl, tmp)) {
-		path = QString::fromUtf16((ushort const *)tmp);
-	}
-	return path;
+	return getPathFromIDList(iidl);
 }
 
 QString WindowsShellAPI::pathFromList(QList<QByteArray> const &list) const
@@ -295,19 +317,20 @@ QByteArray WindowsShellAPI::makeShellIDListArray(const QString &path)
 
 QByteArray WindowsShellAPI::getSpecialFolderLocation(int csidl)
 {
+	if (!forCurrentThread().isReady()) return {};
 	ITEMIDLIST *pIDL = 0;
 	HRESULT r = SHGetSpecialFolderLocation(0, csidl, &pIDL);
-	if (r == NOERROR && pIDL) {
-		return getByteArrayFromITEMIDLIST(pIDL);
-	}
-	return QByteArray();
+	QByteArray result;
+	if (SUCCEEDED(r) && pIDL) result = getByteArrayFromITEMIDLIST(pIDL);
+	CoTaskMemFree(pIDL);
+	return result;
 }
 
 QString WindowsShellAPI::getPathFromIDList(ITEMIDLIST const *iidl)
 {
-	wchar_t tmp[MAX_PATH];
-	SHGetPathFromIDList(iidl, tmp);
-	return QString::fromUtf16((ushort const *)tmp);
+	if (!iidl || !forCurrentThread().isReady()) return {};
+	wchar_t tmp[MAX_PATH]{};
+	return SHGetPathFromIDListW(iidl, tmp) ? QString::fromWCharArray(tmp) : QString();
 }
 
 QString WindowsShellAPI::getPathFromIDList(ItemIdList const &iidl)
@@ -316,6 +339,7 @@ QString WindowsShellAPI::getPathFromIDList(ItemIdList const &iidl)
 		return QString::fromUtf8(iidl.iidl());
 	}
 	if (iidl.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST) {
+		if (iidl.size() < 2) return {};
 		return getPathFromIDList((ITEMIDLIST *)iidl.data());
 	}
 	return {};
@@ -323,45 +347,58 @@ QString WindowsShellAPI::getPathFromIDList(ItemIdList const &iidl)
 
 QByteArray WindowsShellAPI::getKnownFolderIDList(KNOWNFOLDERID const &id)
 {
+	if (!isReady()) return {};
 	ITEMIDLIST *il = nullptr;
-	SHGetKnownFolderIDList(id, 0, nullptr, &il);
-	QByteArray idl = getByteArrayFromITEMIDLIST(il);
-	imalloc()->Free(il);
+	HRESULT result = SHGetKnownFolderIDList(id, 0, nullptr, &il);
+	QByteArray idl;
+	if (SUCCEEDED(result) && il) idl = getByteArrayFromITEMIDLIST(il);
+	CoTaskMemFree(il);
 	return idl;
 }
 
 QList<QByteArray> WindowsShellAPI::enumChildren(IShellFolder *shfolder, ITEMIDLIST const *iidl)
 {
 	QList<QByteArray> items;
-	if (shfolder && iidl) {
+	// Worker STAs must service Shell callbacks. The GUI already has an event
+	// loop; pumping it here could reenter a tree rebuild or window destruction.
+	bool const pump_messages = !QCoreApplication::instance()
+		|| QThread::currentThread() != QCoreApplication::instance()->thread();
+	if (isReady() && shfolder && iidl) {
 		HRESULT r;
 		IEnumIDList *pEnum = 0;
 		r = shfolder->EnumObjects(0, SHCONTF_FOLDERS | SHCONTF_NONFOLDERS | SHCONTF_INCLUDEHIDDEN, &pEnum);
-		if (r == NOERROR && pEnum) {
+		if (r == S_OK && pEnum) {
 			ULONG n = 0;
 			ITEMIDLIST *pIDL1 = 0;
-			while (pEnum->Next(1, &pIDL1, &n) == NOERROR) {
+			while (true) {
+				if (pump_messages && !WindowsComApartment::pumpMessages()) break;
+				r = pEnum->Next(1, &pIDL1, &n);
+				if (r != S_OK || n != 1 || !pIDL1) {
+					CoTaskMemFree(pIDL1);
+					break;
+				}
 				ITEMIDLIST *pIDL2 = ILCombine(iidl, pIDL1);
-				QByteArray ba = WindowsShellAPI::getByteArrayFromITEMIDLIST(pIDL2);
-				items.push_back(ba);
-				imalloc()->Free(pIDL1);
-				imalloc()->Free(pIDL2);
+				if (pIDL2) items.push_back(WindowsShellAPI::getByteArrayFromITEMIDLIST(pIDL2));
+				CoTaskMemFree(pIDL1);
+				CoTaskMemFree(pIDL2);
+				pIDL1 = nullptr;
 			}
-			pEnum->Release();
 		}
+		if (pEnum) pEnum->Release();
 	}
 	return items;
 }
 
 QList<QByteArray> WindowsShellAPI::enumChildren(IShellFolder *shfolder, const QByteArray &iidl)
 {
+	if (iidl.size() < 2) return {};
 	return enumChildren(shfolder, (ITEMIDLIST const *)iidl.data());
 }
 
 HIMAGELIST WindowsShellAPI::getImageList(QByteArray const &iidl)
 {
-	if (iidl.isEmpty()) return nullptr;
-	SHFILEINFO info1;
+	if (iidl.size() < 2 || !forCurrentThread().isReady()) return nullptr;
+	SHFILEINFO info1{};
 	return (HIMAGELIST)SHGetFileInfo((wchar_t const *)iidl.data(), 0, &info1, sizeof(SHFILEINFO), SHGFI_PIDL | SHGFI_SMALLICON | SHGFI_SYSICONINDEX | SHGFI_DISPLAYNAME | SHGFI_ATTRIBUTES);
 }
 
@@ -475,8 +512,8 @@ QString Win32ParseShellLink(QString const &path)
 
 QImage WindowsShellAPI::convertHBitmapToQImage(HBITMAP hBitmap)
 {
-	BITMAP bm;
-	GetObject(hBitmap, sizeof(BITMAP), &bm);
+	BITMAP bm{};
+	if (!hBitmap || !GetObject(hBitmap, sizeof(BITMAP), &bm) || bm.bmWidth < 1 || bm.bmHeight < 1) return {};
 
 	BITMAPINFO bi;
 	ZeroMemory(&bi, sizeof(bi));
@@ -494,8 +531,9 @@ QImage WindowsShellAPI::convertHBitmapToQImage(HBITMAP hBitmap)
 		QImage::Format_ARGB32);
 
 	HDC hdc = GetDC(NULL);
+	if (!hdc) return {};
 
-	GetDIBits(
+	int lines = GetDIBits(
 		hdc,
 		hBitmap,
 		0,
@@ -506,12 +544,12 @@ QImage WindowsShellAPI::convertHBitmapToQImage(HBITMAP hBitmap)
 
 	ReleaseDC(NULL, hdc);
 
-	return image;
+	return lines == bm.bmHeight ? image : QImage();
 }
 
 QImage WindowsShellAPI::queryThumbnail(QString const &path)
 {
-	if (path.isEmpty()) return {};
+	if (path.isEmpty() || !forCurrentThread().isReady()) return {};
 
 	QString path2 = path;
 
@@ -528,7 +566,7 @@ QImage WindowsShellAPI::queryThumbnail(QString const &path)
 				nullptr,
 				IID_PPV_ARGS(&factory));
 
-	if (SUCCEEDED(hr)) {
+	if (SUCCEEDED(hr) && factory) {
 		HBITMAP hbm = nullptr;
 
 		SIZE size = { 128, 128 };
@@ -538,13 +576,12 @@ QImage WindowsShellAPI::queryThumbnail(QString const &path)
 					SIIGBF_BIGGERSIZEOK,
 					&hbm);
 
-		if (SUCCEEDED(hr)) {
+		if (SUCCEEDED(hr) && hbm) {
 			ret = convertHBitmapToQImage(hbm);
-			DeleteObject(hbm);
 		}
-
-		factory->Release();
+		if (hbm) DeleteObject(hbm);
 	}
+	if (factory) factory->Release();
 
 	return ret;
 }
@@ -557,11 +594,10 @@ QImage winQueryThumbnail(const QString &path)
 
 void WindowsShellAPI::test()
 {
-	CoInitialize(NULL);
+	WindowsComApartment apartment;
+	if (!apartment.initialized()) return;
 
 	QImage ret = queryThumbnail("Z:\\pictures\\camera\\EOS-R10\\2022-08-17\\IMG_0425.JPG");
-
-	CoUninitialize();
 
 	// qDebug() << ret.width() << ret.height();
 }

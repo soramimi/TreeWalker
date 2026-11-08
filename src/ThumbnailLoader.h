@@ -31,6 +31,7 @@ public:
 	void clearCache();
 signals:
 	void taskDone(std::shared_ptr<ThumbnailLoader::Entiry> task);
+	void failed(QString const &path, QString const &message);
 };
 
 static inline bool operator == (ThumbnailLoader::Entiry const &l, ThumbnailLoader::Entiry const &r)

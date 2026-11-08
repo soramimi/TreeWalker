@@ -10,20 +10,25 @@
 #include "common/joinpath.h"
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFileIconProvider>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QKeyEvent>
+#include <QScopedValueRollback>
+#include <QSignalBlocker>
 #include <QStandardPaths>
 #include <QTableWidgetItem>
 #include <QTimer>
+#include <QUrl>
 #include "common/realpath.h"
 #include "common/str.h"
 #include "common/misc.h"
 #include "common/q/helper.h""
 #include "IncrementalSearchHelper.h"
+#include <cstring>
 
 #ifdef Q_OS_WIN
 #include "NetworkDiscoveryThread.h"
@@ -62,9 +67,11 @@ class BookmarkInfo {
 public:
 	QString name;
 	QString url;
-	BookmarkInfo(QString const &name = QString(), QString const &url = QString())
+	bool folder = false;
+	BookmarkInfo(QString const &name = QString(), QString const &url = QString(), bool folder = false)
 		: name(name)
 		, url(url)
+		, folder(folder)
 	{
 	}
 };
@@ -79,11 +86,12 @@ struct MainWindow::Private {
 	QTimer network_changed_timer;
 	bool suppress_current_changed = false;
 	FileSystemProviderPtr fs_factory;
-	FolderTreeItem *my_computer_item;
-	FolderTreeItem *drive_root;
-	FolderTreeItem *root_dir_item; // for POSIX=/, for Windows=Desktop
+	FolderTreeItem *my_computer_item = nullptr;
+	FolderTreeItem *drive_root = nullptr;
+	FolderTreeItem *root_dir_item = nullptr; // for POSIX=/, for Windows=Desktop
 
-	FolderTreeItem *bookmarks_root_item;
+	FolderTreeItem *bookmarks_root_item = nullptr;
+	QString bookmark_file_path;
 
 	QFileIconProvider icon_provider;
 	QIcon default_file_icon;
@@ -114,6 +122,29 @@ static QString getDisplayName(FileInfo2 const &info)
 {
 	return info.name;
 }
+
+#ifdef Q_OS_WIN
+static std::optional<std::vector<ItemIdList>> splitShellItemIdList(ItemIdList const &iidl)
+{
+	if (iidl.type() != ItemIdList::Type::WIN_SHELL_ITEMIDLIST || iidl.size() < 2) return {};
+	std::vector<ItemIdList> parts;
+	qsizetype pos = 0;
+	while (pos + 2 <= iidl.size()) {
+		uint16_t length;
+		std::memcpy(&length, iidl.data() + pos, sizeof(length));
+		if (length == 0) {
+			if (pos + 2 != iidl.size()) return {};
+			return parts;
+		}
+		if (length < 2 || length > iidl.size() - pos - 2) return {};
+		pos += length;
+		QByteArray prefix(iidl.data(), pos);
+		prefix.append(2, '\0');
+		parts.emplace_back(prefix);
+	}
+	return {};
+}
+#endif
 
 void MainWindow::addPlaceholder(FolderTreeItem *item)
 {
@@ -183,7 +214,7 @@ MainWindow::~MainWindow()
 		}
 	}
 #ifdef Q_OS_WIN
-	m->network_discovery_thread.detach();
+	m->network_discovery_thread.stop();
 #endif
 	delete m;
 	delete ui;
@@ -214,12 +245,13 @@ void MainWindow::reloadContents()
 	ui->thumbnailView->setModel(fileitemmodel());
 	
 	connect(&m->thumbnail_loader, &ThumbnailLoader::taskDone, this, &MainWindow::thumbnailReady);
+	connect(&m->thumbnail_loader, &ThumbnailLoader::failed, this, [this](QString const &, QString const &message) {
+		setStatusBarText(message);
+	});
 	m->thumbnail_loader.start();
 	
 	ui->stackedWidget_fileview->setCurrentWidget(ui->page_list);
 	
-	fetchBookmarks();
-
 	setFocusFolderTree();
 	ui->treeView->setExpanded(m->drive_root, true);
 	ui->treeView->setCurrentItem(m->drive_root);
@@ -475,6 +507,9 @@ happy:;
 
 FolderTreeItem *MainWindow::makeTreeCompletely()
 {
+	QScopedValueRollback<bool> suppress(m->suppress_current_changed, true);
+	QSignalBlocker block(ui->treeView);
+	clearAllFilters();
 	ui->treeView->clear();
 
 	FileInfo2 info = firstFileInfo();
@@ -486,6 +521,7 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	m->my_computer_item = new_FolderTreeItem();
 	m->my_computer_item->setText(0, tr("My Computer"));
 	m->my_computer_item->setData(0, KindRole, (int)Kind::Directory);
+	m->my_computer_item->setData(0, PathRole, (QS)prefix_mycomputer);
 	ui->treeView->addTopLevelItem(m->my_computer_item);
 	m->my_computer_item->addChild(m->root_dir_item);
 	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>((QS)prefix_mycomputer));
@@ -515,52 +551,23 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	m->bookmarks_root_item->setText(0, tr("Bookmarks"));
 	m->bookmarks_root_item->setData(0, KindRole, (int)Kind::ChromeBookmark);
 	m->bookmarks_root_item->setData(0, PathRole, (QS)prefix_bookmark);
+	m->bookmarks_root_item->setData(0, IidlRole, QVariant::fromValue(ItemIdList((QS)prefix_bookmark)));
 	m->my_computer_item->addChild(m->bookmarks_root_item);
+	fetchBookmarks();
 
 	return m->root_dir_item;
 }
 
 FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList iidl)
 {
-	FileSystemProviderPtr fs;
-
-#ifdef Q_OS_WIN
-	if (iidl.type() == ItemIdList::Type::PATH) {
-		QString path = iidl.path();
-		if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
-			if (path.startsWith((misc::str)prefix_mycomputer)) {
-				iidl = {m->my_computer_item->iidl()};
-				return std::make_shared<BasicFileSystemProvider>(ItemIdList{});
-			} else if (path.startsWith((misc::str)prefix_itemidlist)) {
-				iidl = {QByteArray::fromHex(path.mid(prefix_itemidlist.size()).toUtf8())};
-			}
-		}
-	}
-	if (WindowsFileSystemProvider::isPhysicalFilesystemFolder(iidl)) {
-		if (iidl.size() >= 2) {
-			QString path;
-			if (iidl[0] == '/' && iidl[1] == '/') {
-				path = QString::fromUtf8(iidl.data() + 2, iidl.size() - 2);
-			} else {
-				path = global->shapi->pathFromList((ITEMIDLIST *)iidl.data());
-			}
-			if (!path.isEmpty()) {
-				fs = std::make_shared<BasicFileSystemProvider>(path);
-			}
-		}
-	}
-#endif
-	if (!fs) {
-		fs = m->fs_factory->create(iidl);
-	}
-
-	return fs;
+	return createFileSystemProvider(iidl);
 }
 
 void MainWindow::fetchSubFolders(FolderTreeItem *parent, bool check_placeholder)
 {
 	if (isIncrementalSearching()) return;
 	if (!parent) return;
+	if (parent == m->my_computer_item) return;
 	Kind kind = (Kind)parent->data(0, KindRole).toInt();
 	if (kind == Kind::Directory || kind == Kind::SubDirectory) {
 		auto HasPlaceholder = [&](){
@@ -582,6 +589,7 @@ void MainWindow::fetchSubFolders(FolderTreeItem *parent, bool check_placeholder)
 
 void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 {
+	if (!force && loc != m->current_location) return;
 	QString select_location = m->last_location;
 	int select_row = 0;
 
@@ -600,10 +608,6 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 
 	ui->tableView->verticalHeader()->setSectionResizeMode(QHeaderView::Fixed);
 	ui->tableView->verticalHeader()->setDefaultSectionSize(20);
-
-	if (!force) {
-		if (loc != m->current_location) return;
-	}
 
 	auto *model = fileitemmodel();
 
@@ -627,6 +631,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		DeferResetModel defer1(model);
 
 		model->clearItems();
+		model->setKind(loc.kind);
 
 		IncrementalSearchFilter filter = global->incremental_search->makeFilter(getIncrementalSearchText().toStdString());
 		
@@ -656,20 +661,20 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 			}
 		} else if (loc.kind == Kind::ChromeBookmark) {
 			auto it = m->bookmark_items.find(loc.path);
-			if (it == m->bookmark_items.end()) return;
-			QList<BookmarkInfo> const &items = it->second;
-			for (int row = 0; row < items.size(); row++) {
+			if (it != m->bookmark_items.end()) for (BookmarkInfo const &info : it->second) {
 				FileItemModel::Item fileitem;
-				BookmarkInfo const &info = items[row];
 				fileitem.name = info.name;
 				fileitem.path = info.url;
-				fileitem.icon_ = info.url.endsWith(" /") ? m->default_folder_icon : m->default_file_icon;
+				fileitem.info.name = info.name;
+				fileitem.info.path = info.url;
+				fileitem.info.isdir = info.folder;
+				if (info.folder) fileitem.info.iidl = ItemIdList(info.url);
+				fileitem.icon_ = info.folder ? m->default_folder_icon : m->default_file_icon;
 				model->addItem(std::move(fileitem));
 			}
 		}
 	}
 
-	m->file_item_model.setKind(loc.kind);
 	ui->tableView->reset();
 	ui->tableView->setKind(loc.kind);
 	ui->thumbnailView->setKind(loc.kind);
@@ -698,7 +703,6 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 void MainWindow::updateFileView()
 {
 	auto item = ui->treeView->currentItem();
-	if (!item) return;
 
 	{
 		int i = m->fetch_location_threads.size();
@@ -710,10 +714,37 @@ void MainWindow::updateFileView()
 	}
 
 	LocationData loc;
+	if (!item) {
+		m->current_location = loc;
+		refreshFileList2(loc, true);
+		return;
+	}
 	loc.kind = (Kind)item->data(0, KindRole).toInt();
 	loc.iidl = item->data(0, IidlRole).value<ItemIdList>();
 	loc.path = item->data(0, PathRole).toString();
 	m->current_location = loc;
+	if (loc.kind == Kind::ChromeBookmark) {
+		refreshFileList2(loc, true);
+		return;
+	}
+	if (loc.path == (QS)prefix_mycomputer || loc.iidl.path() == (QS)prefix_mycomputer) {
+		for (int row = 0; row < item->childCount(); ++row) {
+			FolderTreeItem *child = item->child(row);
+			if (static_cast<Kind>(child->data(0, KindRole).toInt()) == Kind::Placeholder) continue;
+			FileInfo2 info;
+			info.name = child->text();
+			info.path = location(child);
+			info.iidl = child->data(0, IidlRole).value<ItemIdList>();
+			info.isdir = true;
+			loc.files.push_back(std::move(info));
+		}
+		refreshFileList2(loc, true);
+		return;
+	}
+	if (!loc.isDir()) {
+		refreshFileList2(loc, true);
+		return;
+	}
 
 #ifdef Q_OS_WIN
 	// ネットワーク探索が未完了の間は、右ペインを空にして待つ（完了時に updateNetworkTree が再表示する）
@@ -736,13 +767,24 @@ void MainWindow::updateFileView()
 	t->data = loc;
 	m->fetch_location_threads.push_back(t);
 	connect(t.get(), &FetchLocationThread::done, this, &MainWindow::onRefreshFileListDone);
+	connect(t.get(), &FetchLocationThread::failed, this, [this](LocationData const &location, QString const &message) {
+		if (location != m->current_location) return;
+		refreshFileList2(location, true);
+		setStatusBarText(message);
+	});
 	t->start();
 }
 
 void MainWindow::updateViews()
 {
 	ItemIdList iidl = currentIIDL();
+	QString previous_location = currentLocation();
 	makeTreeCompletely();
+	if (previous_location.startsWith((misc::str)prefix_bookmark)
+		&& !findBookmarkTreeItem(previous_location, m->bookmarks_root_item)) {
+		iidl = ItemIdList((QS)prefix_bookmark);
+	}
+	if (iidl.empty()) iidl = m->drive_root->iidl();
 	openDir(iidl);
 }
 
@@ -753,6 +795,7 @@ QString MainWindow::nameText(FileInfo2 const &info)
 
 FolderTreeItem *MainWindow::findBookmarkTreeItem(const QString &path, FolderTreeItem *item)
 {
+	if (!item) return nullptr;
 	if (item->data(0, PathRole).toString() == path) {
 		return item;
 	}
@@ -810,15 +853,31 @@ void MainWindow::clearAllFilters()
 
 void MainWindow::openTableItem(QModelIndex const &index)
 {
+	if (!index.isValid() || index.model() != fileitemmodel()) return;
+	// A model reset changes the meaning of the row, so copy its identity first.
+	QString path = index.data(PathRole).toString();
+	QString url = index.data(UrlRole).toString();
+	ItemIdList iidl = index.data(IidlRole).value<ItemIdList>();
+	Kind kind = static_cast<Kind>(index.data(KindRole).toInt());
+	bool bookmark_list = fileitemmodel()->kind_ == Kind::ChromeBookmark;
+	if (path.isEmpty() && url.isEmpty() && iidl.empty()) return;
 	m->focus_widget = QWidget::focusWidget();
 
 	clearAllFilters();
-	
-	auto Data = [&](int role){
-		return ui->thumbnailView->model()->data(index, role);
-	};
-	QString path = Data(PathRole).toString();
 
+	if (path.startsWith((misc::str)prefix_bookmark)) {
+		openDir(ItemIdList(path));
+		return;
+	}
+	if (bookmark_list) {
+		QUrl address(url);
+		if (address.scheme() == "http" || address.scheme() == "https") QDesktopServices::openUrl(address);
+		return;
+	}
+	if ((kind == Kind::Directory || kind == Kind::SubDirectory) && !iidl.empty()) {
+		openDir(iidl);
+		return;
+	}
 	QFileInfo fi(path);
 	if (fi.isDir()) {
 		openDir(path);
@@ -826,14 +885,6 @@ void MainWindow::openTableItem(QModelIndex const &index)
 	}
 	if (fi.isFile()) {
 		QDesktopServices::openUrl(QUrl::fromLocalFile(path));
-		return;
-	}
-	QString url = Data(UrlRole).toString();
-	if (url.startsWith((misc::str)prefix_bookmark) && url.endsWith(" /")) {
-		auto item = findBookmarkTreeItem(url, m->bookmarks_root_item);
-		ui->treeView->setExpanded(item, true);
-		ui->treeView->setCurrentItem(item);
-		updateFileView();
 		return;
 	}
 	if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -1028,6 +1079,13 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			// qDebug() << Q_FUNC_INFO << key;
 
 			QWidget *focuswidget = QApplication::focusWidget();
+			const bool viewFocused = focuswidget == ui->treeView || focuswidget == ui->tableView || focuswidget == ui->thumbnailView;
+
+			if ((key == Qt::Key_D && e->modifiers() == Qt::AltModifier)
+					|| (key == Qt::Key_L && e->modifiers() == Qt::ControlModifier)) {
+				setAddressBarVisible(true);
+				return true;
+			}
 
 			auto AppendCharToFilterText = [&](){
 				FilterTarget target;
@@ -1059,11 +1117,6 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			case Qt::Key_Backspace:
 				if (shift) {
 					setFocusFolderTree();
-					return true;
-				}
-				break;
-			case Qt::Key_D:
-				if (focuswidget == ui->lineEdit_address) {
 					return true;
 				}
 				break;
@@ -1105,13 +1158,15 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 			}
 
 			if (QString text = e->text(); !text.isEmpty()) {
-				if (text == "[") {
-					on_action_view_detailed_triggered();
-					return true;
-				}
-				if (text == "]") {
-					on_action_view_thumbnails_triggered();
-					return true;
+				if (viewFocused && !(e->modifiers() & (Qt::AltModifier | Qt::ControlModifier | Qt::MetaModifier))) {
+					if (text == "[") {
+						on_action_view_detailed_triggered();
+						return true;
+					}
+					if (text == "]") {
+						on_action_view_thumbnails_triggered();
+						return true;
+					}
 				}
 				if (text == "\\") {
 					if (focuswidget != ui->lineEdit_address) {
@@ -1137,7 +1192,7 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 					}
 				}
 			}
-			if (focuswidget == ui->treeView || focuswidget == ui->tableView || focuswidget == ui->thumbnailView) {
+			if (viewFocused) {
 				if (!ctrl) {
 					if (AppendCharToFilterText()) {
 						return true;
@@ -1176,16 +1231,10 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 				return;
 			}
 			if (focuswidget == ui->tableView) {
-				if (isIncrementalSearching()) {
-					clearAllFilters();
-				}
 				openTableItem(ui->tableView->currentIndex());
 				return;
 			}
 			if (focuswidget == ui->thumbnailView) {
-				if (isIncrementalSearching()) {
-					clearAllFilters();
-				}
 				openTableItem(ui->thumbnailView->currentIndex());
 				return;
 			}
@@ -1207,13 +1256,13 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 			}
 			break;
 		case Qt::Key_D:
-			if (event->modifiers() & Qt::AltModifier) {
+			if (event->modifiers() == Qt::AltModifier) {
 				setAddressBarVisible(true);
 				return;
 			}
 			break;
 		case Qt::Key_L:
-			if (event->modifiers() & Qt::ControlModifier) {
+			if (event->modifiers() == Qt::ControlModifier) {
 				setAddressBarVisible(true);
 				return;
 			}
@@ -1289,8 +1338,8 @@ void MainWindow::setHiddenFilesVisible(bool f)
 	m->hidden_files_visible = f;
 	{
 		auto item = ui->treeView->currentItem();
-		if (item) {
-
+		if (item && static_cast<Kind>(item->data(0, KindRole).toInt()) != Kind::ChromeBookmark
+			&& location(item) != (QS)prefix_mycomputer) {
 			while (item->childCount() > 0) {
 				delete item->takeChild(item->childCount() - 1);
 			}
@@ -1439,17 +1488,25 @@ MainWindow::LocationInfo MainWindow::locationInfo(QString loc) const
 	LocationInfo ret;
 	ret.location = loc;
 	
-	std::string_view prefix_list[] = {
-		prefix_mycomputer,
-		prefix_bookmark,
-		prefix_itemidlist,
-	};
-	
-	for (auto const &prefix : prefix_list) {
-		if (loc.startsWith((misc::str)prefix)) {
-			ret.prefix = prefix;
-			return ret;
-		}
+	if (loc == (QS)prefix_mycomputer) {
+		ret.kind = LocationInfo::Computer;
+		ret.prefix = prefix_mycomputer;
+		return ret;
+	}
+	if (loc.startsWith((misc::str)prefix_bookmark)) {
+		ret.kind = LocationInfo::BookmarkFolder;
+		ret.prefix = prefix_bookmark;
+		return ret;
+	}
+	if (loc.startsWith((misc::str)prefix_itemidlist)) {
+#ifdef Q_OS_WIN
+		if (!splitShellItemIdList(ItemIdList(loc))) return {};
+		ret.kind = LocationInfo::ShellFolder;
+		ret.prefix = prefix_itemidlist;
+		return ret;
+#else
+		return {};
+#endif
 	}
 	
 #ifdef Q_OS_WIN
@@ -1471,12 +1528,18 @@ MainWindow::LocationInfo MainWindow::locationInfo(QString loc) const
 MainWindow::LocationInfo MainWindow::locationInfo(FolderTreeItem *item) const
 {
 	if (!item) return {};
-	return locationInfo(location(item));
+	LocationInfo info = locationInfo(location(item));
+	if (static_cast<Kind>(item->data(0, KindRole).toInt()) == Kind::ChromeBookmark) {
+		info.kind = LocationInfo::BookmarkFolder;
+	}
+	return info;
 }
 
 bool MainWindow::isDir(FolderTreeItem *item) const
 {
-	return locationInfo(item).kind == LocationInfo::Directory;
+	LocationInfo::Kind kind = locationInfo(item).kind;
+	return kind == LocationInfo::Directory || kind == LocationInfo::ShellFolder
+		|| kind == LocationInfo::BookmarkFolder || kind == LocationInfo::Computer;
 }
 
 void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderTreeItem *previous)
@@ -1490,7 +1553,11 @@ void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderT
 
 	m->thumbnail_loader.clearRequests();
 	
-	ui->treeView->scrollTo(ui->treeView->indexFromItem(current), QTreeView::EnsureVisible);
+	{
+		QSignalBlocker block(ui->treeView);
+		ui->treeView->scrollTo(ui->treeView->indexFromItem(current), QTreeView::EnsureVisible);
+	}
+	if (isIncrementalSearching() && filtertarget() != FilterTarget::FolderTreeSearch) clearAllFilters();
 
 	{
 		auto item = ui->treeView->currentItem();
@@ -1501,43 +1568,49 @@ void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderT
 	}
 
 	LocationInfo info = locationInfo(ui->treeView->currentItem());
-	if (info) {
 #ifdef Q_OS_WIN
-		if (current && current->data(0, IidlRole).value<ItemIdList>() == FileItem::getNetwork().idlist()) {
-			m->network_discovery_thread.refresh(); // ネットワークを選択したら最新化を促す
-		}
-#endif
-		updateFileView();
+	if (current && current->data(0, IidlRole).value<ItemIdList>() == FileItem::getNetwork().idlist()) {
+		m->network_discovery_thread.refresh(); // ネットワークを選択したら最新化を促す
 	}
+#endif
+	updateFileView();
 	ui->lineEdit_address->setText(info.location);
 }
 
 #ifdef Q_OS_WIN
 FolderTreeItem *MainWindow::openDirWindows(ItemIdList const &iidl)
 {
-	std::vector<ItemIdList> list;
-	if (iidl.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST) {
-		size_t pos = 0;
-		while (pos + 1 < iidl.size()) {
-			char const *ptr = iidl.data() + pos;
-			uint16_t len = *(uint16_t *)ptr;
-			if (len == 0) break;
-			pos += len;
-			QByteArray iidl2(iidl.data(), pos);
-			iidl2.push_back((char)0); // two zeros for terminating the ITEMIDLIST
-			iidl2.push_back((char)0);
-			list.push_back(iidl2);
-		}
-	}
+	auto list = splitShellItemIdList(iidl);
+	if (!list) return nullptr;
+	// The Desktop PIDL consists only of a valid two-byte terminator.
+	if (list->empty()) return ui->treeView->itemFromIidl(iidl);
 
-	FolderTreeItem *item;
-
-	for (size_t i = 0; i < list.size(); i++) {
-		item = ui->treeView->itemFromIidl(list[i]);
-		if (item) {
-			fetchSubFolders(item);
-			ui->treeView->setExpanded(item, true);
+	FolderTreeItem *item = nullptr;
+	for (ItemIdList const &part : *list) {
+		FolderTreeItem *next = ui->treeView->itemFromIidl(part);
+		if (!next && item) {
+			// Shell parsing and enumeration can describe the same folder with
+			// different PIDL metadata. Compare identities within its parent.
+			IShellFolder *desktop = global->shapi->getDesktopShellFolder();
+			if (desktop) {
+				for (int row = 0; row < item->childCount(); ++row) {
+					FolderTreeItem *child = item->child(row);
+					ItemIdList child_iidl = child->iidl();
+					if (!splitShellItemIdList(child_iidl)) continue;
+					HRESULT result = desktop->CompareIDs(SHCIDS_CANONICALONLY,
+						reinterpret_cast<ITEMIDLIST const *>(part.data()),
+						reinterpret_cast<ITEMIDLIST const *>(child_iidl.data()));
+					if (SUCCEEDED(result) && HRESULT_CODE(result) == 0) {
+						next = child;
+						break;
+					}
+				}
+			}
 		}
+		if (!next) return nullptr;
+		item = next;
+		fetchSubFolders(item);
+		ui->treeView->setExpanded(item, true);
 	}
 
 	return item;
@@ -1629,20 +1702,100 @@ void MainWindow::setCurrentDir(const QString &dir)
 
 void MainWindow::openDir(ItemIdList const &iidl)
 {
-	clearFileItems();
-	clearAllFilters();
-
-	setCurrentIIDL(iidl);
-	FolderTreeItem *item;
+	auto fail = [&](){ setStatusBarText(tr("Cannot open this location.")); };
+	if (iidl.empty()) {
+		fail();
+		return;
+	}
+	if (iidl.type() == ItemIdList::Type::PATH) {
+		QString path = iidl.path();
+		if (path.startsWith((misc::str)prefix_bookmark) || path == (QS)prefix_mycomputer) {
+			FolderTreeItem *item = path == (QS)prefix_mycomputer ? m->my_computer_item
+				: findBookmarkTreeItem(path, m->bookmarks_root_item);
+			if (!item) {
+				fail();
+				return;
+			}
+			{
+				QScopedValueRollback<bool> suppress(m->suppress_current_changed, true);
+				QSignalBlocker block(ui->treeView);
+				clearAllFilters();
+				ui->treeView->setCurrentItem(item);
+				ui->treeView->setExpanded(item, true);
+				ui->treeView->scrollTo(ui->treeView->indexFromItem(item), QTreeView::EnsureVisible);
+			}
+			on_treeView_currentItemChanged(item, nullptr);
+			return;
+		}
+	}
+	ItemIdList destination = iidl;
 #ifdef Q_OS_WIN
-	item = openDirWindows(iidl);
+	if (destination.type() == ItemIdList::Type::PATH) {
+		destination = ItemIdList(destination.path());
+	}
+	// Reject truncated PIDLs before any Shell API reads them.
+	if (!splitShellItemIdList(destination) || !FileItem::fromITEMIDLIST(destination)) {
+		fail();
+		return;
+	}
 #else
-	item = openDirPosix(iidl);
+	if (!QFileInfo(destination.path()).isDir()) {
+		fail();
+		return;
+	}
 #endif
-	if (item) {
+	const QString previous_filter = getIncrementalSearchText();
+	FolderTreeItem *previous_item = ui->treeView->currentItem();
+	struct Selection {
+		QAbstractItemView *view;
+		int row;
+		int column;
+		std::vector<int> selected_rows;
+		explicit Selection(QAbstractItemView *view) : view(view), row(view->currentIndex().row()), column(view->currentIndex().column())
+		{
+			if (view->selectionModel()) {
+				for (auto const &index : view->selectionModel()->selectedRows()) selected_rows.push_back(index.row());
+			}
+		}
+		void restore() const
+		{
+			if (!view->selectionModel()) return;
+			view->selectionModel()->clearSelection();
+			for (int selected_row : selected_rows) {
+				view->selectionModel()->select(view->model()->index(selected_row, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+			}
+			view->selectionModel()->setCurrentIndex(view->model()->index(row, column), QItemSelectionModel::NoUpdate);
+		}
+	};
+	Selection table_selection(ui->tableView), thumbnail_selection(ui->thumbnailView);
+	FolderTreeItem *item = nullptr;
+	{
+		QScopedValueRollback<bool> suppress(m->suppress_current_changed, true);
+		QSignalBlocker block(ui->treeView);
+		clearAllFilters();
+#ifdef Q_OS_WIN
+		item = openDirWindows(destination);
+#else
+		item = openDirPosix(destination);
+#endif
+		if (!item) {
+			setIncrementalSearchText(previous_filter);
+			ui->treeView->setCurrentItem(previous_item);
+			table_selection.restore();
+			thumbnail_selection.restore();
+			updateStatusBarText();
+			fail();
+			return;
+		}
+		setCurrentIIDL(destination);
 		ui->treeView->setCurrentItem(item);
 		ui->treeView->setExpanded(item, true);
+		// scrollTo can expand ancestors; keep their expansion handlers from
+		// replacing the destination selection while committing navigation.
+		ui->treeView->scrollTo(ui->treeView->indexFromItem(item), QTreeView::EnsureVisible);
 	}
+	// Also refresh when navigating to the already selected directory.
+	on_treeView_currentItemChanged(item, nullptr);
 }
 
 bool MainWindow::isAddressBarVisible() const
@@ -1678,38 +1831,31 @@ void MainWindow::toggleBookbarkBarVisible()
 
 void MainWindow::makeBookmarkMap(QString const &path, QJsonValue v, int depth, FolderTreeItem *parent)
 {
-	if (v.isObject()) {
-		QJsonObject o = v.toObject();
-		QJsonValue v2 = o.value("children");
-		if (v2.isArray()) {
-			QJsonValue v3 = o.value("name");
-			QString name = v3.toString();
-			QString childpath = path;
-			if (!path.endsWith('/')) {
-				childpath += '/';
-			}
-			childpath += name;
-			m->bookmark_items[path].push_back(BookmarkInfo(name, childpath));
-			auto child = new_FolderTreeItem();
-			child->setText(0, name);
-			child->setData(0, KindRole, (int)Kind::ChromeBookmark);
-			child->setData(0, PathRole, childpath);
-			parent->addChild(child);
-			QJsonArray children = v2.toArray();
-			for (QJsonValue const &v4 : children) {
-				makeBookmarkMap(childpath, v4, depth + 1, child);
-			}
-			return;
-
+	if (!v.isObject() || !parent) return;
+	QJsonObject object = v.toObject();
+	QString name = object.value("name").toString();
+	if (object.value("children").isArray()) {
+		QString id = object.value("id").toVariant().toString();
+		if (id.isEmpty()) id = QString("folder-%1").arg(parent->childCount());
+		QString base = path + (path.endsWith('/') ? QString() : QString("/"))
+			+ QString::fromLatin1(QUrl::toPercentEncoding(id));
+		QString childpath = base;
+		for (int duplicate = 1; m->bookmark_items.count(childpath); ++duplicate) {
+			childpath = base + '-' + QString::number(duplicate);
 		}
-
-		QJsonValue v5 = o.value("name");
-		if (v5.isString()) {
-			QString url = o.value("url").toString();
-			QString name = v5.toString();
-			m->bookmark_items[path].push_back(BookmarkInfo(name, url));
-			return;
+		m->bookmark_items[path].push_back(BookmarkInfo(name, childpath, true));
+		m->bookmark_items.try_emplace(childpath); // Empty folders are real locations too.
+		auto *child = new_FolderTreeItem();
+		child->setText(0, name);
+		child->setData(0, KindRole, static_cast<int>(Kind::ChromeBookmark));
+		child->setData(0, PathRole, childpath);
+		child->setData(0, IidlRole, QVariant::fromValue(ItemIdList(childpath)));
+		parent->addChild(child);
+		for (QJsonValue const &entry : object.value("children").toArray()) {
+			makeBookmarkMap(childpath, entry, depth + 1, child);
 		}
+	} else if (object.value("url").isString()) {
+		m->bookmark_items[path].push_back(BookmarkInfo(name, object.value("url").toString()));
 	}
 }
 
@@ -1726,41 +1872,50 @@ void MainWindow::on_tableView_customContextMenuRequested(const QPoint &pos)
 	}
 }
 
-void MainWindow::fetchBookmarks()
+void MainWindow::fetchBookmarks(QString const &sourcePath)
 {
+	if (!sourcePath.isEmpty()) m->bookmark_file_path = sourcePath;
+	if (!m->bookmarks_root_item) return;
+	QString path = m->bookmark_file_path;
+	if (path.isEmpty()) {
 #ifdef Q_OS_MAC
-	QString path = "~/Library/Application Support/Google/Chrome/Default/Bookmarks";
+		path = QDir::homePath() / "Library/Application Support/Google/Chrome/Default/Bookmarks";
+#elif defined(Q_OS_WIN)
+		path = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation)
+			/ "Google/Chrome/User Data/Default/Bookmarks";
+#else
+		path = QStandardPaths::writableLocation(QStandardPaths::GenericConfigLocation)
+			/ "google-chrome/Default/Bookmarks";
 #endif
-#ifdef Q_OS_WIN
-	QString datadir = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
-	QString path = datadir / "Google/Chrome/User Data/Default/Bookmarks";
-#endif
-#ifdef Q_OS_LINUX
-	QString path = "~/.config/google-chrome/Default/Bookmarks";
-	path = misc::realpath(path);
-#endif
-
-	while (m->bookmarks_root_item->childCount() > 0) {
-		delete m->bookmarks_root_item->takeChild(m->bookmarks_root_item->childCount() - 1);
 	}
-	m->bookmark_items.clear();
-	auto parent = m->bookmarks_root_item;
-	QFile file(path);
-	if (file.open(QFile::ReadOnly)) {
-		QByteArray ba = file.readAll();
-		QJsonDocument doc = QJsonDocument::fromJson(ba);
-		QJsonObject o = doc.object();
-		QJsonObject roots = o.value("roots").toObject();
-		QStringList keys = roots.keys();
-		for (QString const &key : keys) {
-			QJsonValue v = roots.value(key);
-			QJsonObject child = v.toObject();
-			if (!child.isEmpty()) {
-				makeBookmarkMap((QS)prefix_bookmark, child, 0, parent);
+	FolderTreeItem *current = ui->treeView->currentItem();
+	QString selected = current && static_cast<Kind>(current->data(0, KindRole).toInt()) == Kind::ChromeBookmark
+		? location(current) : QString();
+	{
+		QScopedValueRollback<bool> suppress(m->suppress_current_changed, true);
+		QSignalBlocker block(ui->treeView);
+		clearAllFilters();
+		while (m->bookmarks_root_item->childCount() > 0) {
+			delete m->bookmarks_root_item->takeChild(m->bookmarks_root_item->childCount() - 1);
+		}
+		m->bookmark_items.clear();
+		m->bookmark_items.try_emplace((QS)prefix_bookmark);
+		QFile file(path);
+		if (file.open(QFile::ReadOnly)) {
+			QJsonObject roots = QJsonDocument::fromJson(file.readAll()).object().value("roots").toObject();
+			for (QString const &key : roots.keys()) {
+				makeBookmarkMap((QS)prefix_bookmark, roots.value(key), 0, m->bookmarks_root_item);
 			}
 		}
+		ui->treeView->setExpanded(m->bookmarks_root_item, true);
+		if (!selected.isEmpty()) {
+			current = findBookmarkTreeItem(selected, m->bookmarks_root_item);
+			if (!current) current = m->bookmarks_root_item;
+			ui->treeView->setCurrentItem(current);
+			ui->treeView->scrollTo(ui->treeView->indexFromItem(current), QTreeView::EnsureVisible);
+		}
 	}
-	ui->treeView->setExpanded(m->bookmarks_root_item, true);
+	if (!selected.isEmpty() && !m->suppress_current_changed) on_treeView_currentItemChanged(current, nullptr);
 }
 
 std::vector<FileInfo2> MainWindow::windowsMyComputerFiles()

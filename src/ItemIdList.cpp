@@ -77,17 +77,13 @@ ItemIdList::ItemIdList(const QByteArray &iidl)
 
 ItemIdList::ItemIdList(QString const &path)
 {
+	if (path.isEmpty()) return;
 #ifdef Q_OS_WIN
 	if (path.startsWith("//") && path.indexOf("//", 2) > 2) {
 		if (path.startsWith((misc::str)prefix_itemidlist)) {
 			QByteArray iidl = QByteArray::fromHex(path.mid(prefix_itemidlist.size()).toUtf8());
-			int n = iidl.size();
-			while (n > 0 && iidl[n - 1] == 0) {
-				n--;
-			}
-			iidl.resize(n);
-			iidl.push_back((uint8_t)0); // two zeros for terminating the ITEMIDLIST
-			iidl.push_back((uint8_t)0);
+			// The hex form includes the terminator. Trailing zeros may also be
+			// part of the last SHITEMID payload, so preserve every decoded byte.
 			d.iidl = iidl;
 			d.type = ItemIdList::Type::WIN_SHELL_ITEMIDLIST;
 		} else {
@@ -97,7 +93,7 @@ ItemIdList::ItemIdList(QString const &path)
 	} else {
 		QString path2 = path;
 		path2.replace('/', '\\');
-		d.iidl = global->shapi->parseDisplayName(path2);
+		d.iidl = WindowsShellAPI::forCurrentThread().parseDisplayName(path2);
 		d.type = ItemIdList::Type::WIN_SHELL_ITEMIDLIST;
 	}
 #else
@@ -120,7 +116,7 @@ QString ItemIdList::path() const
 
 #ifdef Q_OS_WIN
 	if (d.type == ItemIdList::Type::WIN_SHELL_ITEMIDLIST) {
-		return global->shapi->getPathFromIDList(d.iidl);
+		return WindowsShellAPI::getPathFromIDList(d.iidl);
 	}
 #else
 	return QString::fromUtf8(d.iidl);

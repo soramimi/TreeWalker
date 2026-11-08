@@ -13,6 +13,11 @@
 #include <unordered_map>
 #include <vector>
 
+#ifdef Q_OS_WIN
+#include "WindowsCom.h"
+#include "WindowsShellAPI.h"
+#endif
+
 template <typename KEY, typename VALUE> class T_Cache {
 public:
 	struct CacheItem {
@@ -146,13 +151,34 @@ void ThumbnailLoader::start()
 	m->threads.resize(8);
 	for (size_t i = 0; i < m->threads.size(); i++) {
 		m->threads[i] = std::thread([this]{
+#ifdef Q_OS_WIN
+			WindowsComApartment apartment;
+			if (!apartment.initialized()) {
+				qWarning() << "Cannot initialize COM for thumbnails:" << Qt::hex << static_cast<quint32>(apartment.result());
+				emit failed({}, tr("Cannot load thumbnails."));
+				return;
+			}
+			if (!WindowsShellAPI::forCurrentThread().isReady()) {
+				qWarning() << "Cannot initialize Windows Shell for thumbnails.";
+				emit failed({}, tr("Cannot load thumbnails."));
+				return;
+			}
+#endif
 			while (true) {
+#ifdef Q_OS_WIN
+				// Shell handlers can require STA callbacks, including while idle.
+				if (!WindowsComApartment::pumpMessages()) return;
+#endif
 				std::shared_ptr<ThumbnailLoader::Entiry> entity;
 				{
 					std::unique_lock<std::mutex> lock(m->mutex);
 					if (m->interrupted) break;
 					if (m->submission_queue.empty()) {
+#ifdef Q_OS_WIN
+						m->cond.wait_for(lock, std::chrono::milliseconds(20));
+#else
 						m->cond.wait(lock);
+#endif
 						continue;
 					}
 					entity = m->submission_queue.front();

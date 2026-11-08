@@ -1,9 +1,9 @@
 #include "WindowsFileSystemProvider.h"
-#include "ApplicationGlobal.h"
 #include "WindowsShellAPI.h"
 #include "common/str.h"
 #include <QFileInfo>
 #include <QHash>
+#include <QPixmap>
 #include <commoncontrols.h>
 #include <shlwapi.h>
 
@@ -11,11 +11,12 @@ static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &ii
 
 static inline WindowsShellAPI *shapi()
 {
-	return global->shapi.get();
+	return &WindowsShellAPI::forCurrentThread();
 }
 
 bool WindowsFileSystemProvider::isPhysicalFilesystemFolder(void const *iidl)
 {
+	if (!iidl || !shapi()->isReady()) return false;
 	IShellItem *item = nullptr;
 
 	HRESULT hr;
@@ -24,7 +25,10 @@ bool WindowsFileSystemProvider::isPhysicalFilesystemFolder(void const *iidl)
 				(ITEMIDLIST const *)iidl,
 				IID_PPV_ARGS(&item));
 
-	if (FAILED(hr)) return false;
+	if (FAILED(hr) || !item) {
+		if (item) item->Release();
+		return false;
+	}
 
 	SFGAOF attrs = 0;
 
@@ -102,6 +106,7 @@ IShellFolder *FileItem::shfolder() const
 
 FileItem FileItem::getDesktop()
 {
+	if (!shapi()->isReady()) return {};
 	Data *p = new Data;
 	p->idlist = WindowsShellAPI::getSpecialFolderLocation(CSIDL_DESKTOP);
 	SHGetDesktopFolder(&p->shfolder);
@@ -110,6 +115,7 @@ FileItem FileItem::getDesktop()
 
 FileItem FileItem::getDrives()
 {
+	if (!shapi()->isReady()) return {};
 	Data *p = new Data;
 	p->idlist = WindowsShellAPI::getSpecialFolderLocation(CSIDL_DRIVES);
 	SHGetDesktopFolder(&p->shfolder);
@@ -118,6 +124,7 @@ FileItem FileItem::getDrives()
 
 FileItem FileItem::getNetwork()
 {
+	if (!shapi()->isReady()) return {};
 	Data *p = new Data;
 	p->idlist = WindowsShellAPI::getSpecialFolderLocation(CSIDL_NETWORK);
 	SHGetDesktopFolder(&p->shfolder);
@@ -234,7 +241,7 @@ bool WindowsFileSystemProvider::fetch()
 	if (m->children.isEmpty()) {
 		m->children_pos = -1;
 		if (m->fileitem) {
-			QList<QByteArray> list = global->shapi->enumChildren(m->fileitem.shfolder(), m->fileitem.idlist().d.iidl);
+			QList<QByteArray> list = shapi()->enumChildren(m->fileitem.shfolder(), m->fileitem.idlist().d.iidl);
 			for (const QByteArray &ba : list) {
 				m->children.append(ItemIdList{ba});
 			}
@@ -274,6 +281,7 @@ bool WindowsFileSystemProvider::isDir() const
 
 static QImage convertHIconToQImage(HICON hIcon)
 {
+	if (!hIcon) return {};
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
 	QPixmap pm = QtWin::fromHICON(hIcon);
 	return pm.toImage();
@@ -284,10 +292,13 @@ static QImage convertHIconToQImage(HICON hIcon)
 
 QImage WindowsFileSystemProvider::getIcon(HIMAGELIST_ hImageList, void const *iidl)
 {
+	if (!iidl || !shapi()->isReady()) return {};
 	SHFILEINFO sfinfo{};
 	// UINT flags = SHGFI_PIDL | SHGFI_SMALLICON | SHGFI_SYSICONINDEX | SHGFI_DISPLAYNAME | SHGFI_ATTRIBUTES;
 	UINT flags = SHGFI_PIDL | SHGSI_ICON | SHGSI_LARGEICON | SHGFI_SYSICONINDEX;
-	SHGetFileInfo((wchar_t const *)iidl, 0, &sfinfo, sizeof(SHFILEINFO), flags);
+	HIMAGELIST images = reinterpret_cast<HIMAGELIST>(SHGetFileInfo((wchar_t const *)iidl, 0, &sfinfo, sizeof(SHFILEINFO), flags));
+	if (!hImageList) hImageList = images;
+	if (!images || !hImageList) return {};
 	HICON hIcon = ImageList_GetIcon(reinterpret_cast<HIMAGELIST>(hImageList), sfinfo.iIcon, ILD_NORMAL);
 	QImage im = convertHIconToQImage(hIcon);
 	DestroyIcon(hIcon);
@@ -296,6 +307,7 @@ QImage WindowsFileSystemProvider::getIcon(HIMAGELIST_ hImageList, void const *ii
 
 QImage WindowsFileSystemProvider::getStockFolderIcon()
 {
+	if (!shapi()->isReady()) return {};
 	QImage ret;
 #if 0
 	// 普通のアイコン
@@ -311,7 +323,7 @@ QImage WindowsFileSystemProvider::getStockFolderIcon()
 #else
 	// 特大アイコン
 
-	static QImage static_image;
+	static thread_local QImage static_image;
 
 	if (static_image.isNull()) {
 		HRESULT hr;
@@ -323,23 +335,27 @@ QImage WindowsFileSystemProvider::getStockFolderIcon()
 			SIID_FOLDER,
 			SHGSI_SYSICONINDEX,
 			&sii);
+		if (FAILED(hr)) return {};
 
 		IImageList *imageList = nullptr;
 
 		hr = SHGetImageList(
 			SHIL_JUMBO,
 			IID_PPV_ARGS(&imageList));
+		if (FAILED(hr) || !imageList) {
+			if (imageList) imageList->Release();
+			return {};
+		}
 
 		HICON hIcon = nullptr;
 
-		imageList->GetIcon(
+		hr = imageList->GetIcon(
 			sii.iSysImageIndex,
 			ILD_TRANSPARENT,
 			&hIcon);
-
-		static_image = QImage::fromHICON(hIcon);
-
-		DestroyIcon(hIcon);
+		imageList->Release();
+		if (SUCCEEDED(hr) && hIcon) static_image = convertHIconToQImage(hIcon);
+		if (hIcon) DestroyIcon(hIcon);
 	}
 
 	ret = static_image;
@@ -350,15 +366,14 @@ QImage WindowsFileSystemProvider::getStockFolderIcon()
 FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl)
 {
 	Q_ASSERT(iidl.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST);
-	if (iidl.d.iidl.size() < 2) return {};
+	if (iidl.d.iidl.size() < 2 || !shapi()->isReady()) return {};
 
 	FileInfo2 fi;
 
-	SHFILEINFO sfinfo;
+	SHFILEINFO sfinfo{};
 	ITEMIDLIST const *iidl_p = reinterpret_cast<ITEMIDLIST const *>(iidl.data());
 
-	SHGetFileInfo((wchar_t const *)iidl_p, 0, &sfinfo, sizeof(SHFILEINFO), SHGFI_PIDL | SHGFI_DISPLAYNAME | SHGFI_ATTRIBUTES);
-	if (sfinfo.dwAttributes == 0) {
+	if (!SHGetFileInfo((wchar_t const *)iidl_p, 0, &sfinfo, sizeof(SHFILEINFO), SHGFI_PIDL | SHGFI_DISPLAYNAME | SHGFI_ATTRIBUTES) || sfinfo.dwAttributes == 0) {
 		return FileInfo2();
 	}
 
@@ -396,7 +411,7 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 // QFileInfo（UNCパスへのアクセス）や項目ごとのアイコン生成を避ける。
 static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl, QHash<int, QIcon> &icon_cache)
 {
-	if (iidl.size() < 2) return {};
+	if (iidl.size() < 2 || !shapi()->isReady()) return {};
 
 	ITEMIDLIST const *iidl_p = reinterpret_cast<ITEMIDLIST const *>(iidl.data());
 
@@ -433,16 +448,18 @@ static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &ii
 
 bool WindowsFileSystemProvider::hasReadPermission() const
 {
-	if (m->fileitem) {
-		HRESULT hr;
-		IEnumIDList *enumidlist = nullptr;
-		hr = m->fileitem.shfolder()->EnumObjects(nullptr, SHCONTF_FOLDERS | SHCONTF_NONFOLDERS, &enumidlist);
-		if (SUCCEEDED(hr)) {
-			enumidlist->Release();
-			return true;
-		}
+	if (!m->fileitem) return false;
+	IShellFolder *folder = m->fileitem.shfolder();
+	if (!folder) return false;
+
+	IEnumIDList *enumidlist = nullptr;
+	HRESULT const hr = folder->EnumObjects(nullptr, SHCONTF_FOLDERS | SHCONTF_NONFOLDERS, &enumidlist);
+	// An empty Shell folder may return S_FALSE with no enumerator.
+	bool const readable = hr == S_FALSE || (hr == S_OK && enumidlist);
+	if (enumidlist) {
+		enumidlist->Release();
 	}
-	return false;
+	return readable;
 }
 
 QIcon WindowsFileSystemProvider::icon()

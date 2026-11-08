@@ -203,6 +203,7 @@ void FileTableView::setPath(const QString &path)
 
 void FileTableView::setKind(Kind kind)
 {
+	m->kind = kind;
 	m->item_delegate->kind_ = kind;
 }
 
@@ -232,9 +233,7 @@ void FileTableView::setFilterText(QString const &text)
 		row = model()->unfilteredRow(currentIndex().row());
 	}
 
-	beginResetModel();
 	model()->setFilterText(text);
-	endResetModel();
 
 	if (row != -1) {
 		auto index = model()->index(row, 0);

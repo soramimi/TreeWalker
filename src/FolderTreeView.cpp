@@ -4,6 +4,7 @@
 #include <QDebug>
 #include <QStyledItemDelegate>
 #include <QPainter>
+#include <QSignalBlocker>
 #include "FileItemModel.h"
 #include "../subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
 #include "ApplicationGlobal.h"
@@ -78,16 +79,6 @@ private:
 			parent = &top_level_items_;
 		}
 		parent->addChild(child);
-		Q_ASSERT(!parent->model() || parent->model() == this);
-		parent->setModel(this);
-		auto SetModel = [&](auto self, FolderTreeItem *item)-> void {
-			Q_ASSERT(!item->model() || item->model() == this); // should not belong to another model
-			_insertChild(item);
-			for (FolderTreeItem *c : *item->children()) {
-				self(self, c); // recursive call for children
-			}
-		};
-		SetModel(SetModel, child);
 	}
 	void _detach(FolderTreeItem *item)
 	{
@@ -111,19 +102,14 @@ private:
 	}
 	FolderTreeItem *find(QModelIndex const &index)
 	{
+		if (!index.isValid() || index.model() != this || index.column() != 0) return nullptr;
 		int row = index.row();
 		if (isFiltered()) {
 			if (row >= 0 && row < filtered_items_->size()) {
 				return filtered_items_->at(row);
 			}
 		} else {
-			if (!index.isValid()) {
-				if (row >= 0 && row < top_level_items_.children()->size()) {
-					return top_level_items_.children()->at(row);
-				}
-			} else {
-				return find(index.internalPointer());
-			}
+			return find(index.internalPointer());
 		}
 		return {};
 	}
@@ -142,7 +128,9 @@ public:
 	}
 	void clear()
 	{
+		filtered_items_.reset();
 		top_level_items_.children()->clear();
+		top_level_items_.clearChildrenCache();
 
 		for (FolderTreeItem *child : item_set_) {
 			delete child;
@@ -151,7 +139,9 @@ public:
 	}
 	QModelIndex index(int row, int column, const QModelIndex &parent) const
 	{
+		if (row < 0 || column != 0 || (parent.isValid() && (parent.model() != this || parent.column() != 0))) return {};
 		if (isFiltered()) {
+			if (parent.isValid() || row >= filtered_items_->size()) return {};
 			return createIndex(row, column, nullptr);
 		} else {
 			if (!parent.isValid()) {
@@ -171,6 +161,7 @@ public:
 	}
 	QModelIndex parent(const QModelIndex &child) const
 	{
+		if (!child.isValid() || child.model() != this || child.column() != 0) return {};
 		if (isFiltered()) {
 			// pass
 		} else {
@@ -184,8 +175,9 @@ public:
 	}
 	int rowCount(const QModelIndex &parent) const
 	{
+		if (parent.isValid() && (parent.model() != this || parent.column() != 0)) return 0;
 		if (isFiltered()) {
-			return (int)filtered_items_->size();
+			return parent.isValid() ? 0 : static_cast<int>(filtered_items_->size());
 		} else {
 			if (!parent.isValid()) {
 				return top_level_items_.children()->size();
@@ -199,7 +191,7 @@ public:
 	}
 	int columnCount(const QModelIndex &parent) const
 	{
-		return 1;
+		return parent.isValid() && (parent.model() != this || parent.column() != 0) ? 0 : 1;
 	}
 	QVariant data(const QModelIndex &index, int role) const
 	{
@@ -226,21 +218,7 @@ public:
 	}
 	FolderTreeItem *itemFromIndex(const QModelIndex &index) const
 	{
-#if 0
-		if (isFiltered()) {
-			return find(index);
-		} else {
-			int row = index.row();
-			if (!index.isValid()) {
-				if (row >= 0 && row < top_level_items_.children()->size()) {
-					return top_level_items_.children()->at(row);
-				}
-			}
-		}
-		return find(index.internalPointer());
-#else
 		return find(index);
-#endif
 	}
 	QModelIndex indexFromItem(FolderTreeItem *item) const
 	{
@@ -255,19 +233,16 @@ public:
 			} else {
 				auto it = item_set_.find(item);
 				if (it != item_set_.end() && *it == item) {
-					int row = 0;
 					FolderTreeItem const *parent = item->parent();
 					if (!parent) {
 						parent = &top_level_items_;
-						if (!parent) return {};
 					}
 					// find the row number of this item from the parent
 					const_cast<FolderTreeItem *>(parent)->updateChildrenCache();
 					auto it2 = parent->children_cache_.find(item);
 					if (it2 != parent->children_cache_.end()) {
-						row = it2->second;
+						return createIndex(static_cast<int>(it2->second), 0, item);
 					}
-					return createIndex(row, 0, item);
 				}
 			}
 		}
@@ -287,39 +262,28 @@ public:
 public:
 	bool hasChildren(const QModelIndex &parent) const
 	{
-		if (isFiltered()) {
-			if (parent.row() == -1 && parent.column() == -1) {
-				return true;
-			}
-			return false;
-		}
-		
-		FolderTreeItem *item = itemFromIndex(parent);
-		if (!item) {
-			return !top_level_items_.children()->empty();
-		}
-		return !item->children()->empty();
+		return rowCount(parent) > 0;
 	}
 };
 
 void FolderTreeItem::addChild(FolderTreeItem *child, int row)
 {
 	if (model_ && model_->isFiltered()) return;
-
-	child->parent_ = this;
+	if (!child || child == this || child->parent_ || child->model_) return;
+	for (FolderTreeItem *ancestor = this; ancestor; ancestor = ancestor->parent_) {
+		if (ancestor == child) return;
+	}
 
 	if (row < 0 || row > children_.size()) {
 		row = children_.size();
 	}
+	if (model_) model_->beginInsertRows(model_->indexFromItem(this), row, row);
+	child->parent_ = this;
 	children_.insert(children_.begin() + row, child);
 
 	clearChildrenCache(); // invalidate cache
 
 	if (model_) {
-		size_t last = children_.size();
-		// qDebug() << Q_FUNC_INFO << last << children_.size();
-		model_->beginInsertRows(model_->indexFromItem(this), last, last);
-
 		auto InsertChildren = [&](auto self, FolderTreeItem *item)-> void {
 			model_->_insertChild(item);
 			for (FolderTreeItem *child : *item->children()) {
@@ -334,15 +298,17 @@ void FolderTreeItem::addChild(FolderTreeItem *child, int row)
 
 FolderTreeItem *FolderTreeItem::takeChild(int row)
 {
+	if (model_ && model_->isFiltered()) return nullptr;
 	if (row >= 0 && row < children_.size()) {
-		model_->beginRemoveRows(model_->indexFromItem(this), row, row);
+		if (model_) model_->beginRemoveRows(model_->indexFromItem(this), row, row);
 		FolderTreeItem *child = children_[row];
 		children_.erase(children_.begin() + row);
 		clearChildrenCache();
 		if (model_) {
 			model_->_detach(child);
 		}
-		model_->endRemoveRows();
+		child->parent_ = nullptr;
+		if (model_) model_->endRemoveRows();
 		return child;
 	}
 	return {};
@@ -366,6 +332,10 @@ void FolderTreeItem::setData(int column, int role, const QVariant &data)
 		iidl_ = data.value<ItemIdList>();
 	}
 	data_map_[role] = data;
+	if (model_) {
+		QModelIndex index = model_->indexFromItem(this);
+		if (index.isValid()) emit model_->dataChanged(index, index, {role});
+	}
 }
 
 QVariant FolderTreeItem::data(int column, int role) const
@@ -462,7 +432,11 @@ FolderTreeView::~FolderTreeView()
 
 void FolderTreeView::clear()
 {
+	const QSignalBlocker blocker(this);
 	beginResetModel();
+	m->filter = {};
+	m->saved_current_item = nullptr;
+	m->saved_expansion_state.clear();
 	m->model.clear();
 	endResetModel();
 }

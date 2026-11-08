@@ -33,6 +33,8 @@ public:
 		
 		FileInfo2 const *fileinfo = widget->model()->fileinfo(index);
 		Q_ASSERT(fileinfo);
+		if (!fileinfo) return;
+		bool bookmark = kind_ == Kind::ChromeBookmark || index.data(KindRole).toInt() == (int)Kind::ChromeBookmark;
 
 		QString name = index.data(Qt::DisplayRole).toString();
 
@@ -76,7 +78,7 @@ alpha = 1.0;
 		int w = o2.rect.width() - 8;
 		int h = w * 3 / 4;
 		QIcon icon;
-		{
+		if (!bookmark && !fileinfo->isdir) {
 			QString suffix;
 			if (!fileinfo->isdir) {
 				int i = name.lastIndexOf('.');
@@ -107,12 +109,7 @@ alpha = 1.0;
 
 		// bold rendering of file extensions
 		
-		bool strong_suffix = false;
-		if (fileinfo->isdir) {
-			// pass
-		} else {
-			strong_suffix = true;
-		}
+		bool strong_suffix = !bookmark && !fileinfo->isdir;
 
 		struct Segment {
 			std::string text;
@@ -138,7 +135,7 @@ alpha = 1.0;
 				segments.push_back(a);
 			}
 
-			size_t i = segments.size();
+			size_t i = strong_suffix ? segments.size() : 0;
 			while (i > 0) {
 				i--;
 				auto j = segments[i].text.rfind('.'); // 拡張子のドットを検索
@@ -316,9 +313,7 @@ void ThumbnailView::setFilterText(const QString &text)
 		row = model()->unfilteredRow(currentIndex().row());
 	}
 
-	beginResetModel();
 	model()->setFilterText(text);
-	endResetModel();
 
 	if (row != -1) {
 		auto index = model()->index(row, 0);

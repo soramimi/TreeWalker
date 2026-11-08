@@ -133,6 +133,8 @@ win32:HEADERS += src/WindowsFileSystemProvider.h \
 	$$PWD/src/common/wstring.h \
 	src/WindowsShellAPI.h
 
+win32:HEADERS += $$PWD/src/WindowsCom.h
+
 !win32:SOURCES += \
 	$$PWD/src/xdg.cpp
 

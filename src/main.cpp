@@ -13,6 +13,11 @@
 #include "../subprojects/FileTypePlugin/src/FileTypeInterface.h"
 #include "../subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
 #include "LoadPlugin.h"
+#include <QScopedValueRollback>
+#ifdef Q_OS_WIN
+#include "WindowsCom.h"
+#include "WindowsShellAPI.h"
+#endif
 
 class MyStyle : public QProxyStyle {
 private:
@@ -120,14 +125,26 @@ int main(int argc, char *argv[])
 	putenv("QT_ASSUME_STDERR_HAS_CONSOLE=1");
 	// qInstallMessageHandler(logHandler);
 
-	ApplicationGlobal g;
-	global = &g;
-	
 #ifdef Q_OS_WIN
 	putenv("QT_ENABLE_HIGHDPI_SCALING=1");
 #endif
 
 	MyApplication a(argc, argv);
+#ifdef Q_OS_WIN
+	WindowsComApartment apartment;
+	if (!apartment.initialized()) {
+		qCritical() << "Cannot initialize COM:" << Qt::hex << static_cast<quint32>(apartment.result());
+		return 1;
+	}
+#endif
+	ApplicationGlobal g;
+	QScopedValueRollback<ApplicationGlobal *> global_scope(global, &g);
+#ifdef Q_OS_WIN
+	if (!global->shapi->isReady()) {
+		qCritical() << "Cannot initialize Windows Shell.";
+		return 1;
+	}
+#endif
 	global->organization_name = ORGANIZATION_NAME;
 	global->application_name = APPLICATION_NAME;
 	global->this_executive_program = QFileInfo(argv[0]).absoluteFilePath();
@@ -140,8 +157,8 @@ int main(int argc, char *argv[])
 	{
 		global->file_type_detector = loadPlugin<FileType, FileTypeInterface>("filetypeplugin"); // file type detector plugin
 		global->incremental_search = loadPlugin<IncrementalSearch, IncrementalSearchInterface>("incrementalsearchplugin"); // incremental search plugin
-		if (!global->file_type_detector) exit(1);
-		if (!global->incremental_search) exit(1);
+		if (!global->file_type_detector) return 1;
+		if (!global->incremental_search) return 1;
 	}
 	
 	QPluginLoader loader("darkstyleplugin");

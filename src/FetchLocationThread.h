@@ -12,6 +12,7 @@ public:
 	void run();
 signals:
 	void done(LocationData const &data);
+	void failed(LocationData const &data, QString const &message);
 };
 
 

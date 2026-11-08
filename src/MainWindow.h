@@ -27,7 +27,7 @@ struct IShellFolder;
 using add_tree_child_fn_r = std::function<void(FolderTreeItem *parent, FolderTreeItem *item)>;
 
 struct LocationData {
-	Kind kind;
+	Kind kind = Kind::File;
 	ItemIdList iidl;
 	QString path;
 	std::vector<FileInfo2> files;
@@ -54,6 +54,8 @@ class MainWindow : public QMainWindow {
 	Q_OBJECT
 	friend class MyApplication;
 	friend class FetchLocationThread;
+	friend class P1RegressionTest;
+	friend class SpecialLocationTests;
 private:
 	struct Private;
 	Private *m;
@@ -98,6 +100,9 @@ public:
 			Invalid,
 			File,
 			Directory,
+			ShellFolder,
+			BookmarkFolder,
+			Computer,
 		};
 		Kind kind = Invalid;
 		QString location;
@@ -153,7 +158,7 @@ private:
 	FolderTreeItem *openDirPosix(const ItemIdList &iidl);
 #endif
 	bool hiddenFilesVisible() const;
-	void fetchBookmarks();
+	void fetchBookmarks(QString const &sourcePath = {});
 	void makeBookmarkMap(const QString &path, QJsonValue v, int depth, FolderTreeItem *parent);
 	void openDir(const ItemIdList &iidl);
 	void openTableItem(const QModelIndex &index);

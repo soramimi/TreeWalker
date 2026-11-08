@@ -14,7 +14,7 @@ void FileItemModel::setKind(Kind kind)
 
 QModelIndex FileItemModel::index(int row, int column, const QModelIndex &parent) const
 {
-	return createIndex(row, column);
+	return hasIndex(row, column, parent) ? createIndex(row, column) : QModelIndex();
 }
 
 QModelIndex FileItemModel::parent(const QModelIndex &child) const
@@ -113,12 +113,13 @@ void FileItemModel::setFilterText(const QString &filter_text)
 
 int FileItemModel::rowCount(const QModelIndex &parent) const
 {
-	return count();
+	return parent.isValid() ? 0 : count();
 }
 
 int FileItemModel::columnCount(const QModelIndex &parent) const
 {
-	return 4;
+	if (parent.isValid()) return 0;
+	return kind_ == Kind::ChromeBookmark ? 2 : 4;
 }
 
 static QString modifiedText(QDateTime const &dt)
@@ -137,6 +138,7 @@ static QString modifiedText(QDateTime const &dt)
 
 QVariant FileItemModel::data(const QModelIndex &index, int role) const
 {
+	if (!index.isValid() || index.model() != this || index.column() >= columnCount()) return {};
 	int row = index.row();
 	if (row >= 0 && row < count()) {
 		int col = index.column();
@@ -148,7 +150,7 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 				case 0:
 					return item(row)->name;
 				case 1:
-					return item(row)->path;
+					return item(row)->info.isdir ? QString() : item(row)->path;
 				}
 			} else {
 				switch (col) {
@@ -177,6 +179,7 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 		case Qt::DecorationRole:
 			if (col == 0) {
 				FileItemModel::Item const *item= this->item(row);
+				if (!item->icon_.isNull()) return item->icon_;
 				if (item && item->info.isdir) {
 					return QIcon(QPixmap::fromImage(global->folder_icon));
 				}
@@ -191,9 +194,13 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 			return item(row)->path;
 			break;
 		case IidlRole:
-			break;
+			return QVariant::fromValue(item(row)->info.iidl);
 		case KindRole:
-			break;
+			if (item(row)->info.isdir) {
+				bool bookmark = kind_ == Kind::ChromeBookmark || item(row)->path.startsWith(QString::fromLatin1(prefix_bookmark.data(), prefix_bookmark.size()));
+				return (int)(bookmark ? Kind::ChromeBookmark : Kind::Directory);
+			}
+			return (int)Kind::File;
 		}
 	}
 	return QVariant();
@@ -227,9 +234,9 @@ QVariant FileItemModel::headerData(int section, Qt::Orientation orientation, int
 
 const FileInfo2 *FileItemModel::fileinfo(const QModelIndex &index) const
 {
+	if (!index.isValid() || index.model() != this || index.column() >= columnCount()) return nullptr;
 	int row = index.row();
 	if (row >= 0 && row < count()) {
-		int col = index.column();
 		return &item(row)->info;
 	}
 	return nullptr;

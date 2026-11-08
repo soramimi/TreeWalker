@@ -29,6 +29,11 @@ private:
 public:
 	WindowsShellAPI();
 	~WindowsShellAPI();
+	WindowsShellAPI(WindowsShellAPI const &) = delete;
+	WindowsShellAPI &operator=(WindowsShellAPI const &) = delete;
+	// The cached interfaces and their COM apartment belong to the calling thread.
+	static WindowsShellAPI &forCurrentThread();
+	bool isReady() const;
 	IMalloc *imalloc();
 	static QByteArray getByteArrayFromITEMIDLIST(const ITEMIDLIST *iidl);
 	static QByteArray parent(QByteArray const &idl);
