@@ -8,9 +8,10 @@ autoreconf -if
 make -j10
 popd
 
-cp file/src/magic.h lib/
-cp file/magic/magic.mgc lib/
-pushd lib
+mkdir gen
+cp file/src/magic.h gen/
+cp file/magic/magic.mgc gen/
+pushd gen
 #gzip -k -f magic.mgc
 #xxd -i magic.mgc.gz >magic_mgc_gz.c
 zstd -19 magic.mgc -f -o magic.mgc.zst
