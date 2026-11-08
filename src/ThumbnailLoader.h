@@ -5,6 +5,7 @@
 #include <QImage>
 #include <QObject>
 #include <memory>
+#include <functional>
 #include <string>
 
 class ThumbnailLoader : public QObject {
@@ -14,19 +15,23 @@ public:
 		QString path;
 		QImage image;
 		QDateTime last_access;
+		QDateTime modified;
+		qint64 size = -1;
+		quint64 generation = 0;
 	};
 private:
 	struct Private;
 	Private *m;
 	constexpr static int icon_size = 128;
-	constexpr static int max_cache_size = 5000;
 	static QImage resizeImageForThumbnail(const QImage &source);
 public:
-	ThumbnailLoader();
+	using LoadFunction = std::function<QImage(QString const &)>;
+	explicit ThumbnailLoader(LoadFunction load = {}, size_t cache_capacity = 4096);
 	virtual ~ThumbnailLoader();
 	void start();
 	void stop();
-	std::shared_ptr<ThumbnailLoader::Entiry> query(const QString &path);
+	std::shared_ptr<ThumbnailLoader::Entiry> query(const QString &path, QDateTime const &modified = {}, qint64 size = -1);
+	bool isCurrent(std::shared_ptr<Entiry> const &entity) const;
 	void clearRequests();
 	void clearCache();
 signals:

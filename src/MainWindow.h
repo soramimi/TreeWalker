@@ -88,7 +88,7 @@ public:
 	static void sortFileInfoList(std::vector<FileInfo2> *list);
 	void setStatusBarText(const QString &text);
 	std::vector<FileInfo2> windowsMyComputerFiles();
-	QImage queryThumbnail(const QString &path);
+	QImage queryThumbnail(FileInfo2 const &info);
 	void setFocusFolderTree();
 	void setFocusItemsView();
 	FileItemModel *fileitemmodel();

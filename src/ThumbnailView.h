@@ -17,7 +17,7 @@ private:
 	struct Private;
 	Private *m;
 
-	QImage queryThubmanil(const QString &text);
+	QImage queryThubmanil(FileInfo2 const &info);
 	void _set_filter(const QString &filter_text);
 protected:
 	void beginResetModel();

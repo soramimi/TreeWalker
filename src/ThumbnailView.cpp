@@ -92,7 +92,7 @@ alpha = 1.0;
 			} else {
 				QString text = index.data(PathRole).toString();
 				if (!text.isEmpty()) {
-					QImage image = widget->queryThubmanil(text);
+					QImage image = widget->queryThubmanil(*fileinfo);
 					if (!image.isNull()) {
 						icon = QIcon(QPixmap::fromImage(image));
 					}
@@ -109,7 +109,7 @@ alpha = 1.0;
 
 		// bold rendering of file extensions
 		
-		bool strong_suffix = !bookmark && !fileinfo->isdir;
+		bool strong_suffix = global->appsettings.strongly_draw_file_suffix && !bookmark && !fileinfo->isdir;
 
 		struct Segment {
 			std::string text;
@@ -122,7 +122,7 @@ alpha = 1.0;
 			std::string text = name.toStdString();
 	
 			if (filter && *filter) {
-				incrementalsearch::Result match = global->incremental_search->match(xstring(text), *filter);
+				incrementalsearch::Result match = widget->model()->matchText(index);
 				for (auto it = match.parts.begin(); it != match.parts.end(); ++it) {
 					Segment a;
 					a.text = it->text;
@@ -347,9 +347,9 @@ void ThumbnailView::_set_filter(QString const &filter_text)
 // 	endResetModel();
 // }
 
-QImage ThumbnailView::queryThubmanil(QString const &text)
+QImage ThumbnailView::queryThubmanil(FileInfo2 const &info)
 {
-	return mainwindow()->queryThumbnail(text);
+	return mainwindow()->queryThumbnail(info);
 }
 
 #if 0

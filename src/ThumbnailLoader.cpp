@@ -28,8 +28,7 @@ private:
 	std::list<CacheItem> items_;
 	std::unordered_map<KEY, typename std::list<CacheItem>::iterator> index_;
 
-	static constexpr size_t MAX_SIZE = 4096;
-	static constexpr size_t TRIM_TARGET = 4000;
+	size_t capacity_;
 
 	void evict_expired(size_t target_count)
 	{
@@ -47,6 +46,7 @@ private:
 		}
 	}
 public:
+	explicit T_Cache(size_t capacity) : capacity_(std::max(size_t(1), capacity)) {}
 	std::optional<VALUE> find(KEY const &name)
 	{
 		auto map_it = index_.find(name);
@@ -62,7 +62,6 @@ public:
 	}
 	void insert(KEY const &name, VALUE const &value)
 	{
-		auto now = misc::get_tick_count();
 		auto SetItem = [&](CacheItem *item){
 			item->value = value;
 		};
@@ -75,8 +74,8 @@ public:
 			map_it->second = items_.begin();
 		} else {
 			// evict if at capacity
-			if (items_.size() >= MAX_SIZE) {
-				evict_expired(TRIM_TARGET);
+			if (items_.size() >= capacity_) {
+				evict_expired(capacity_ - 1);
 			}
 			// insert new entry at front
 			items_.emplace_front();
@@ -91,6 +90,13 @@ public:
 		items_.clear();
 		index_.clear();
 	}
+	void erase(KEY const &key)
+	{
+		auto it = index_.find(key);
+		if (it == index_.end()) return;
+		items_.erase(it->second);
+		index_.erase(it);
+	}
 };
 
 struct ThumbnailLoader::Private {
@@ -98,12 +104,18 @@ struct ThumbnailLoader::Private {
 	std::condition_variable cond;
 	std::vector<std::thread> threads;
 	bool interrupted = false;
+	quint64 generation = 0;
 	std::deque<std::shared_ptr<ThumbnailLoader::Entiry>> submission_queue;
+	std::unordered_map<QString, std::shared_ptr<Entiry>> requested;
+	std::unordered_map<QString, std::shared_ptr<Entiry>> running;
 	T_Cache<QString, std::shared_ptr<ThumbnailLoader::Entiry>> completion_map;
+	LoadFunction load;
+	Private(LoadFunction load, size_t capacity)
+		: completion_map(capacity), load(std::move(load)) {}
 };
 
-ThumbnailLoader::ThumbnailLoader()
-	: m(new Private)
+ThumbnailLoader::ThumbnailLoader(LoadFunction load, size_t cache_capacity)
+	: m(new Private(std::move(load), cache_capacity))
 {
 }
 
@@ -148,9 +160,11 @@ QImage ThumbnailLoader::resizeImageForThumbnail(QImage const &source)
 
 void ThumbnailLoader::start()
 {
-	m->threads.resize(8);
-	for (size_t i = 0; i < m->threads.size(); i++) {
-		m->threads[i] = std::thread([this]{
+	std::lock_guard<std::mutex> lock(m->mutex);
+	if (!m->threads.empty()) return;
+	m->interrupted = false;
+	for (size_t i = 0; i < 8; i++) {
+		m->threads.emplace_back([this]{
 #ifdef Q_OS_WIN
 			WindowsComApartment apartment;
 			if (!apartment.initialized()) {
@@ -183,33 +197,45 @@ void ThumbnailLoader::start()
 					}
 					entity = m->submission_queue.front();
 					m->submission_queue.pop_front();
+					auto wanted = m->requested.find(entity->path);
+					if (wanted == m->requested.end() || wanted->second != entity || m->running.count(entity->path)) continue;
+					m->running[entity->path] = entity;
 				}
 				if (entity) {
-					if (0) { // debug
-						QString path = "/home/soramimi/develop/Guitar/src/resources/Guitar.icns";
-						QImage img = QImage(path);
-						
-					}
-					
 					QImage img;
-					if (entity->path.endsWith(".icns", Qt::CaseInsensitive)) {
-						// something wrong: icns files are not thread-safe to load (?)
-					} else {
+					try {
+						if (m->load) {
+							img = m->load(entity->path);
+						} else if (!entity->path.endsWith(".icns", Qt::CaseInsensitive)) {
 #ifdef _WIN32
-						img = winQueryThumbnail(entity->path);
+							img = winQueryThumbnail(entity->path);
 #else
-						img = QImage(entity->path);
+							img = QImage(entity->path);
 #endif
+						}
+					} catch (...) {
+						// A failed decoder is a completed, cacheable request too.
 					}
-					
-					if (!img.isNull()) {
-						entity->image = resizeImageForThumbnail(img);
-						entity->last_access = QDateTime::currentDateTime();
-
+					entity->image = resizeImageForThumbnail(img);
+					bool notify = false;
+					{
 						std::lock_guard<std::mutex> lock(m->mutex);
-						m->completion_map.insert(entity->path, entity);
-						emit taskDone(entity);
+						m->running.erase(entity->path);
+						auto wanted = m->requested.find(entity->path);
+						if (!m->interrupted && wanted != m->requested.end()) {
+							if (wanted->second == entity && entity->generation == m->generation) {
+								entity->last_access = QDateTime::currentDateTime();
+								m->completion_map.insert(entity->path, entity);
+								m->requested.erase(wanted);
+								notify = true;
+							} else {
+								m->submission_queue.push_back(wanted->second);
+								m->cond.notify_all();
+							}
+						}
 					}
+					// Direct receivers may query the cache; do not hold its mutex.
+					if (notify) emit taskDone(entity);
 				}
 			}
 		});
@@ -221,6 +247,8 @@ void ThumbnailLoader::stop()
 	{
 		std::lock_guard<std::mutex> lock(m->mutex);
 		m->interrupted = true;
+		m->requested.clear();
+		m->submission_queue.clear();
 		m->cond.notify_all();
 	}
 	for (auto &t : m->threads) {
@@ -228,46 +256,66 @@ void ThumbnailLoader::stop()
 			t.join();
 		}
 	}
+	m->threads.clear();
 }
 
-std::shared_ptr<ThumbnailLoader::Entiry> ThumbnailLoader::query(QString const &path)
+std::shared_ptr<ThumbnailLoader::Entiry> ThumbnailLoader::query(QString const &path, QDateTime const &modified, qint64 size)
 {
 	if (path.isEmpty()) return {};
-
-	std::shared_ptr<ThumbnailLoader::Entiry> task = std::make_shared<ThumbnailLoader::Entiry>();
-	task->path = path;
 
 	std::lock_guard<std::mutex> lock(m->mutex);
 	{
 		auto opt = m->completion_map.find(path);
-		if (opt) {
+		if (opt && (*opt)->modified == modified && (*opt)->size == size) {
 			(*opt)->last_access = QDateTime::currentDateTime();
 			return *opt; // already completed
 		}
+		if (opt) m->completion_map.erase(path);
 	}
-	{
-		for (std::shared_ptr<Entiry> const &t : m->submission_queue) {
-			if (t->path == path) {
-				return {}; // already being processed
-			}
-		}
+	if (m->interrupted) return {};
+	auto matches = [&](std::shared_ptr<Entiry> const &entry) {
+		return entry->generation == m->generation && entry->modified == modified && entry->size == size;
+	};
+	auto wanted = m->requested.find(path);
+	if (wanted != m->requested.end() && matches(wanted->second)) return {};
+	auto running = m->running.find(path);
+	if (running != m->running.end() && matches(running->second)) {
+		m->requested[path] = running->second;
+		return {};
 	}
-	m->submission_queue.push_back(task);
+	auto task = std::make_shared<Entiry>();
+	task->path = path;
+	task->modified = modified;
+	task->size = size;
+	task->generation = m->generation;
+	m->requested[path] = task;
+	if (running == m->running.end()) m->submission_queue.push_back(task);
 	m->cond.notify_all();
 	return {};
+}
+
+bool ThumbnailLoader::isCurrent(std::shared_ptr<Entiry> const &entity) const
+{
+	if (!entity) return false;
+	std::lock_guard<std::mutex> lock(m->mutex);
+	auto cached = m->completion_map.find(entity->path);
+	return entity->generation == m->generation && cached && *cached == entity;
 }
 
 void ThumbnailLoader::clearRequests()
 {
 	std::lock_guard<std::mutex> lock(m->mutex);
 	m->submission_queue.clear();
+	m->requested.clear();
 }
 
 void ThumbnailLoader::clearCache()
 {
 	std::lock_guard<std::mutex> lock(m->mutex);
 	m->submission_queue.clear();
+	m->requested.clear();
 	m->completion_map.clear();
+	++m->generation;
 }
 
 

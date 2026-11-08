@@ -24,6 +24,48 @@ FolderTreeItem *item(QString const &text)
 class ModelNotificationTests : public QObject {
 	Q_OBJECT
 private slots:
+	void zeroMatchesAreComputedOnce()
+	{
+		int matches = 0;
+		FileItemModel model(nullptr, [&](auto const &text, auto const &filter) {
+			++matches;
+			return global->incremental_search->match(text, filter);
+		});
+		std::vector<FileItemModel::Item> items;
+		for (QString const &name : {QString("東京都.txt"), QString("吾輩は猫である.txt")}) {
+			FileItemModel::Item item;
+			item.name = item.info.name = name;
+			item.info.isdir = true;
+			items.push_back(std::move(item));
+		}
+		model.replaceItems(Kind::Directory, std::move(items), "unmatched-query");
+		QCOMPARE(model.count(), 0);
+		QCOMPARE(matches, 2);
+		for (int i = 0; i < 100; ++i) {
+			QCOMPARE(model.rowCount(), 0);
+			QVERIFY(!model.index(0, 0).isValid());
+			QVERIFY(!model.item(0));
+		}
+		QAbstractItemModelTester tester(&model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+		QCOMPARE(matches, 2);
+		model.setFilterText("another-unmatched-query");
+		QCOMPARE(model.count(), 0);
+		QCOMPARE(matches, 4);
+		model.beginResetModel();
+		FileItemModel::Item item;
+		item.name = "追加.txt";
+		item.info.isdir = true;
+		model.addItem(std::move(item));
+		model.endResetModel();
+		QCOMPARE(model.count(), 0);
+		QCOMPARE(matches, 7);
+		model.beginResetModel();
+		model.clearItems();
+		model.endResetModel();
+		QCOMPARE(model.count(), 0);
+		QCOMPARE(matches, 7);
+	}
+
 	void insertionAndRemovalKeepIndexesConsistent()
 	{
 		MainWindow window;

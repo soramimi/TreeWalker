@@ -32,6 +32,7 @@ int runAddressInputTests(int argc, char **argv);
 int runSpecialLocationTests(int argc, char **argv);
 int runStartupSettingsTests(int argc, char **argv);
 int runReadingSearchTests(int argc, char **argv);
+int runThumbnailLoaderTests(int argc, char **argv);
 
 #ifdef Q_OS_WIN
 int runNetworkDiscoveryTests(int argc, char **argv);
@@ -251,6 +252,34 @@ private slots:
 		QTest::addColumn<bool>("thumbnail");
 		QTest::newRow("details") << false;
 		QTest::newRow("thumbnails") << true;
+	}
+
+	void refreshInvalidatesThumbnailCache()
+	{
+		QTemporaryDir files(QDir::currentPath() + "/treewalker-thumbnail-refresh-XXXXXX");
+		QVERIFY(files.isValid());
+		const QString path = files.filePath("image.bmp");
+		QImage source(48, 24, QImage::Format_ARGB32);
+		source.fill(Qt::red);
+		QVERIFY(source.save(path));
+		MainWindow window;
+		QVERIFY(prepareWindow(window));
+		window.reloadContents();
+		window.openDir(ItemIdList(files.path()));
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 1);
+		FileInfo2 info;
+		BasicFileSystemProvider::setFileInfo(&info, "image.bmp", path);
+		QTRY_VERIFY(!window.queryThumbnail(info).isNull());
+		QCOMPARE(window.queryThumbnail(info).pixelColor(0, 0), QColor(Qt::red));
+		source.fill(Qt::blue);
+		QVERIFY(source.save(path));
+		// Keep the same metadata in the request: only explicit F5 invalidation
+		// should cause the already cached path to be read again.
+		QCOMPARE(window.queryThumbnail(info).pixelColor(0, 0), QColor(Qt::red));
+		QKeyEvent refresh(QEvent::KeyPress, Qt::Key_F5, Qt::NoModifier);
+		window.keyPressEvent(&refresh);
+		QTRY_VERIFY(!window.queryThumbnail(info).isNull());
+		QCOMPARE(window.queryThumbnail(info).pixelColor(0, 0), QColor(Qt::blue));
 	}
 
 	void treeSearchDoesNotFilterFileList()
@@ -592,6 +621,7 @@ int main(int argc, char **argv)
 	result |= runSpecialLocationTests(argc, argv);
 	result |= runStartupSettingsTests(argc, argv);
 	result |= runReadingSearchTests(argc, argv);
+	result |= runThumbnailLoaderTests(argc, argv);
 #ifdef Q_OS_WIN
 	result |= runNetworkDiscoveryTests(argc, argv);
 	result |= runComWorkerTests(argc, argv);

@@ -26,7 +26,7 @@ template <typename ImplType, typename Interface> std::shared_ptr<ImplType> loadP
 	
 	// logprintf(LOG_DEFAULT, "loading the plugin %s", path.toStdString().c_str());
 	QPluginLoader loader(path);
-	Interface *plugin = dynamic_cast<Interface *>(loader.instance());
+	Interface *plugin = qobject_cast<Interface *>(loader.instance());
 	if (plugin) {
 		ret = std::shared_ptr<ImplType>(plugin->create());
 		if (ret->open()) {

@@ -11,7 +11,7 @@
 
 namespace {
 
-void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOptionViewItem *option, bool abbreviation, IncrementalSearchFilter const &filter)
+void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOptionViewItem *option, bool abbreviation, incrementalsearch::Result const &match)
 {
 	bool enabled = (option->state & QStyle::State_Enabled);
 	p->save();
@@ -20,6 +20,7 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 	int flags = option->displayAlignment;
 	QString name = option->text;
 	QString suffix;
+	int suffix_offset = name.size();
 	QRect rSuffix;
 	
 	if (strong_suffix) {
@@ -27,6 +28,7 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 		if (i > 0) {
 			suffix = name.mid(i + 1);
 			name = name.left(i + 1);
+			suffix_offset = i + 1;
 		}
 	}
 
@@ -41,37 +43,22 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 		p->restore();
 	}
 	
-	if (abbreviation) {
-		int n = name.size();
-		constexpr int min_length = 1;
-		if (n > min_length) {
-			const int rect_width = option->rect.width();
-			QFontMetrics fm = p->fontMetrics();
-			auto Width = [&](){
-				return fm.size(0, name).width() + rSuffix.width();
-			};
-			if (Width() > rect_width) {
-				if (flags & Qt::AlignRight) {
-					flags &= ~Qt::AlignRight;
-					flags |= Qt::AlignLeft;
-				}
-				fm.height();
-				while (n > min_length) {
-					if (Width() <= rect_width) break;
-					n--;
-					name = name.mid(0, n);
-					name += "...";
-				}
-			}
+	int visible_length = name.size();
+	QString ellipsis;
+	QFontMetrics fm = p->fontMetrics();
+	if (abbreviation && fm.horizontalAdvance(name) + rSuffix.width() > option->rect.width()) {
+		ellipsis = "...";
+		while (visible_length > 0 && fm.horizontalAdvance(name.left(visible_length) + ellipsis) + rSuffix.width() > option->rect.width()) {
+			--visible_length;
+			if (visible_length > 0 && name.at(visible_length - 1).isHighSurrogate()) --visible_length;
 		}
+		name = name.left(visible_length) + ellipsis;
 	}
-
-	auto DrawItemText = [&](QRect const &rect, QString const &text) {
-		incrementalsearch::drawText_filtered(p, *option, rect, text, &filter);
-	};
+	auto name_parts = incrementalsearch::textFragments(match, 0, visible_length);
+	if (!ellipsis.isEmpty()) name_parts.push_back({ellipsis, false});
 	
 	QRect rName = p->fontMetrics().boundingRect(option->rect, flags, name);
-	DrawItemText(rName, name);
+	incrementalsearch::drawText_fragments(p, *option, rName, name_parts);
 	
 	if (strong_suffix && !suffix.isEmpty()) {
 		p->save();
@@ -79,7 +66,7 @@ void drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleOp
 		font.setBold(true);
 		p->setFont(font);
 		QRect r = rSuffix.translated(rName.width(), 0);
-		DrawItemText(r, suffix);
+		incrementalsearch::drawText_fragments(p, *option, r, incrementalsearch::textFragments(match, suffix_offset));
 		p->restore();
 	}
 	
@@ -150,7 +137,7 @@ public:
 			} else {
 				strong_suffix = global->appsettings.strongly_draw_file_suffix && (col == 0);
 			}
-			drawItemViewText(strong_suffix, w->style(), painter, &o, true, w->filter());
+			drawItemViewText(strong_suffix, w->style(), painter, &o, true, w->model()->matchText(index));
 		}
 	}
 	void setPath(const QString &path)

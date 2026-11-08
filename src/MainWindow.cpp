@@ -29,6 +29,7 @@
 #include "common/q/helper.h""
 #include "IncrementalSearchHelper.h"
 #include <cstring>
+#include <unordered_set>
 
 #ifdef Q_OS_WIN
 #include "NetworkDiscoveryThread.h"
@@ -81,6 +82,7 @@ struct MainWindow::Private {
 
 	ItemIdList current_iidl;
 	ThumbnailLoader thumbnail_loader;
+	std::unordered_set<QString> thumbnail_paths;
 	StatusLabel *status_label;
 	QTimer update_list_timer;
 	QTimer network_changed_timer;
@@ -673,6 +675,10 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		}
 	}
 	const QString filter_text = filtertarget() == FilterTarget::FolderTreeSearch ? QString() : getIncrementalSearchText();
+	m->thumbnail_paths.clear();
+	if (loc.isDir()) for (auto const &item : items) {
+		if (!item.info.isdir && !item.path.isEmpty()) m->thumbnail_paths.insert(item.path);
+	}
 	model->replaceItems(loc.kind, std::move(items), filter_text);
 	for (int row = 0; row < model->rowCount(); ++row) {
 		if (model->item(row)->info.isdir && model->item(row)->path == select_location) {
@@ -711,6 +717,7 @@ void MainWindow::updateFileView()
 	const quint64 generation = ++m->fetch_generation;
 	m->location_loading = false;
 	m->reload_selection.reset();
+	m->thumbnail_paths.clear();
 	auto item = ui->treeView->currentItem();
 
 	{
@@ -789,6 +796,7 @@ void MainWindow::updateFileView()
 
 void MainWindow::updateViews()
 {
+	m->thumbnail_loader.clearCache();
 	const FilterTarget previous_target = filtertarget();
 	const QString previous_filter = previous_target == FilterTarget::FolderTreeSearch ? QString() : getIncrementalSearchText();
 	QAbstractItemView *view = viewmode() == List ? static_cast<QAbstractItemView *>(ui->tableView) : ui->thumbnailView;
@@ -1381,23 +1389,13 @@ void MainWindow::setFocusItemsView()
 	}	
 }
 
-QImage MainWindow::queryThumbnail(QString const &path)
+QImage MainWindow::queryThumbnail(FileInfo2 const &info)
 {
-#if 0//def Q_OS_WIN
-	QFileInfo fi(path);
-	if (fi.isDir()) {
-		ItemIdList iidl = global->shapi->parseDisplayName(path);
-		if (WindowsFileSystemProvider::isPhysicalFilesystemFolder(iidl)) {
-			return WindowsFileSystemProvider::getStockFolderIcon();
-		}
-	}
-#endif
-	QFileInfo fi(path);
-	if (fi.isDir()) {
+	if (info.isdir) {
 		return global->folder_icon;
 	}
 
-	auto task = m->thumbnail_loader.query(path);
+	auto task = m->thumbnail_loader.query(info.path, info.modified, info.size);
 	if (task) {
 		return task->image;
 	}
@@ -1406,6 +1404,7 @@ QImage MainWindow::queryThumbnail(QString const &path)
 
 void MainWindow::thumbnailReady(std::shared_ptr<ThumbnailLoader::Entiry> entity)
 {
+	if (!m->thumbnail_loader.isCurrent(entity) || !m->thumbnail_paths.count(entity->path)) return;
 	ui->thumbnailView->updateThumbnail(entity->path, entity->image);
 }
 

@@ -58,6 +58,33 @@ void drawText(QPainter *painter, const QStyleOptionViewItem &opt, QRect r, const
 	painter->drawText(r, opt.displayAlignment, text); // テキストを描画
 }
 
+std::vector<TextFragment> textFragments(Result const &result, int offset, int length)
+{
+	std::vector<TextFragment> fragments;
+	int position = 0;
+	for (auto const &part : result.parts) {
+		QString text = toQString(part.text);
+		int begin = std::max(position, offset);
+		int end = position + text.size();
+		if (length >= 0) end = std::min(end, offset + length);
+		if (end > begin) fragments.push_back({text.mid(begin - position, end - begin), part.match});
+		position += text.size();
+	}
+	return fragments;
+}
+
+void drawText_fragments(QPainter *painter, QStyleOptionViewItem const &opt, QRect const &rect, std::vector<TextFragment> const &fragments)
+{
+	int x = rect.x();
+	for (auto const &part : fragments) {
+		int width = painter->fontMetrics().horizontalAdvance(part.text);
+		QRect r(x, rect.y(), width, rect.height());
+		if (part.match) painter->fillRect(r, highlight_bg_color());
+		drawText(painter, opt, r, part.text);
+		x += width;
+	}
+}
+
 void drawText_filtered(QPainter *painter, const QStyleOptionViewItem &opt, const QRect &rect, QString const &text, IncrementalSearchFilter const *filter)
 {
 	bool done = false;

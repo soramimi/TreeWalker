@@ -54,6 +54,7 @@ static inline char const *stristr(const char *s1, const char *s2)
 
 struct IncrementalSearch::Private {
 	MyMecab mecab;
+	quint64 reading_generation_count = 0;
 #ifdef USE_SUDACHI
 	MySudachi sudachi;
 #endif
@@ -151,6 +152,7 @@ IncrementalSearch::~IncrementalSearch()
 
 xstring IncrementalSearch::to_kana(const xstring &text, std::vector<incrementalsearch::Element> *out) const
 {
+	++m->reading_generation_count;
 	xstring kana;
 	std::vector<incrementalsearch::Part> parts = mecab()->parse(text.view());
 	size_t pos = 0;
@@ -187,7 +189,31 @@ IncrementalSearchFilter IncrementalSearch::makeFilter(std::string const &filtert
 
 incrementalsearch::Result IncrementalSearch::match(xstring const &text, const IncrementalSearchFilter &filter) const
 {
+	if (filter.original_text.empty() || filter.katakana_text.empty()) {
+		incrementalsearch::PreparedText prepared;
+		prepared.source = text;
+		return match(prepared, filter);
+	}
+	return match(prepare(text), filter);
+}
+
+incrementalsearch::PreparedText IncrementalSearch::prepare(xstring const &text) const
+{
+	incrementalsearch::PreparedText prepared;
+	prepared.source = text;
+	if (!text.empty()) prepared.kana = to_kana(text, &prepared.elements);
+	return prepared;
+}
+
+quint64 IncrementalSearch::readingGenerationCount() const
+{
+	return m->reading_generation_count;
+}
+
+incrementalsearch::Result IncrementalSearch::match(incrementalsearch::PreparedText const &prepared, const IncrementalSearchFilter &filter) const
+{
 	using namespace incrementalsearch;
+	auto const &text = prepared.source;
 	Result ret;
 	if (filter.original_text.empty()) {
 		// フィルタ文字列なしは全体一致とみなす
@@ -216,9 +242,8 @@ incrementalsearch::Result IncrementalSearch::match(xstring const &text, const In
 		}
 		// 文字列をカタカナに変換してマッチさせる
 		if (!filter.katakana_text.empty()) {
-			std::vector<Element> parts;
-			xstring kana = to_kana(text, &parts);
-			auto reading = to_std_string_view(kana);
+			auto const &parts = prepared.elements;
+			auto reading = to_std_string_view(prepared.kana);
 			auto needle = to_std_string_view(filter.katakana_text);
 			size_t first = 0;
 			size_t last = 0;

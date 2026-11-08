@@ -21,6 +21,13 @@ class IncrementalSearchFilter;
 
 namespace incrementalsearch {
 
+struct TextFragment {
+	QString text;
+	bool match = false;
+};
+std::vector<TextFragment> textFragments(Result const &result, int offset = 0, int length = -1);
+void drawText_fragments(QPainter *painter, QStyleOptionViewItem const &opt, QRect const &rect, std::vector<TextFragment> const &fragments);
+
 QColor filtered_bg_color();
 QColor highlight_bg_color();
 
