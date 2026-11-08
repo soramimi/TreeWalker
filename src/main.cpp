@@ -1,20 +1,21 @@
-#include "darktheme/TraditionalWindowsStyleTreeControl.h"
-#include "MainWindow.h"
-#include <QApplication>
-#include <QProxyStyle>
-#include <QKeyEvent>
-#include <QDebug>
-#include <QStandardPaths>
-#include <QPluginLoader>
-#include <thread>
-#include "common/joinpath.h"
-#include "ApplicationGlobal.h"
-#include "SettingsDialog.h"
-#include "Theme.h"
 #include "../subprojects/FileTypePlugin/src/FileTypeInterface.h"
 #include "../subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
+#include "ApplicationGlobal.h"
 #include "LoadPlugin.h"
+#include "MainWindow.h"
+#include "SettingsDialog.h"
+#include "Theme.h"
+#include "common/joinpath.h"
+#include "darktheme/TraditionalWindowsStyleTreeControl.h"
+#include <QApplication>
+#include <QDebug>
+#include <QKeyEvent>
+#include <QPluginLoader>
+#include <QProxyStyle>
 #include <QScopedValueRollback>
+#include <QStandardPaths>
+#include <thread>
+
 #ifdef Q_OS_WIN
 #include "WindowsCom.h"
 #include "WindowsShellAPI.h"
@@ -170,31 +171,22 @@ int main(int argc, char *argv[])
 		}
 	}
 	
-	QPluginLoader loader("darkstyleplugin");
-
-	bool darkstyle = true;
-#if 0
-	DarkStyleInterface *plugin = dynamic_cast<DarkStyleInterface *>(loader.instance());
-	if (plugin) {
+	if (1) {
+		QPluginLoader loader("darkstyleplugin");
+		
+		bool darkstyle = true;
 		if (darkstyle) {
-			plugin->applyDarkStyle(&a);
+			auto theme = createDarkTheme();
+			a.setStyle(theme->newStyle());
+			a.setPalette(a.style()->standardPalette());
 		} else {
-			plugin->applyLightStyle(&a);
-		}
-	}
-#else
-	if (darkstyle) {
-		auto theme = createDarkTheme();
-		a.setStyle(theme->newStyle());
-		a.setPalette(a.style()->standardPalette());
-	} else {
-		auto theme = createLightTheme();
-		a.setStyle(theme->newStyle());
+			auto theme = createLightTheme();
+			a.setStyle(theme->newStyle());
 #ifndef Q_OS_WIN
-		a.setPalette(a.style()->standardPalette());
+			a.setPalette(a.style()->standardPalette());
 #endif
-	}
-#endif
+		}
+	}	
 
 	qRegisterMetaType<LocationData>("LocationData");
 	qRegisterMetaType<ItemIdList>("ItemIdList");
