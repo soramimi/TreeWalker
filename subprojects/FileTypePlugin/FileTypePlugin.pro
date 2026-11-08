@@ -58,7 +58,6 @@ DISTFILES += \
 
 
 SOURCES += \
-	lib/magic_mgc_gz.c \
 	src/AbstractSimpleIO.cpp \
 	src/FileTypeWrapper.cpp \
 	src/zs.cpp
@@ -68,6 +67,5 @@ HEADERS += \
 	src/FileTypeWrapper.h \
 	src/zs.h
 
-# SOURCES += lib/magic_mgc_gz.c
 SOURCES += lib/magic_mgc_zst.c
 

@@ -53,7 +53,7 @@ bool ZS::decompress(std::function<int (char *, int)> const &in_fn, std::function
 
 	const size_t buffInSize = ZSTD_DStreamInSize();
 	const size_t buffOutSize = ZSTD_DStreamOutSize();
-	std::unique_ptr<char> buffer(new char [buffInSize + buffOutSize]);
+	std::unique_ptr<char[]> buffer(new char [buffInSize + buffOutSize]);
 	char *const buffIn = buffer.get();
 	char *const buffOut = buffIn + buffInSize;
 
@@ -102,7 +102,7 @@ bool ZS::compress(std::function<int (char *, int)> const &in_fn, std::function<i
 
 	const size_t buffInSize = ZSTD_CStreamInSize();
 	const size_t buffOutSize = ZSTD_CStreamOutSize();
-	std::unique_ptr<char> buffer(new char [buffInSize + buffOutSize]);
+	std::unique_ptr<char[]> buffer(new char [buffInSize + buffOutSize]);
 	char *const buffIn = buffer.get();
 	char *const buffOut = buffIn + buffInSize;
 

@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QElapsedTimer>
 #include <QAbstractItemModelTester>
 #include <QDesktopServices>
 #include <QDir>
@@ -10,6 +11,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUrl>
+#include <atomic>
 
 #include "ApplicationGlobal.h"
 #include "BasicFileSystemProvider.h"
@@ -18,6 +20,7 @@
 #include "LoadPlugin.h"
 #include "MainWindow.h"
 #include "StatusLabel.h"
+#include "worker_test_support.h"
 #include "ThumbnailView.h"
 #include "subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
 #ifdef Q_OS_WIN
@@ -33,6 +36,10 @@ int runSpecialLocationTests(int argc, char **argv);
 int runStartupSettingsTests(int argc, char **argv);
 int runReadingSearchTests(int argc, char **argv);
 int runThumbnailLoaderTests(int argc, char **argv);
+int runWorkerShutdownTests(int argc, char **argv);
+int blockedWorkersChild();
+int runPluginLoadingTests(int argc, char **argv);
+int pluginErrorChild(QString const &path);
 
 #ifdef Q_OS_WIN
 int runNetworkDiscoveryTests(int argc, char **argv);
@@ -105,6 +112,109 @@ private:
 	}
 
 private slots:
+	void oldFolderResultDoesNotReplaceNewRequest_data()
+	{
+		QTest::addColumn<bool>("old_failure");
+		QTest::newRow("old success") << false;
+		QTest::newRow("old failure") << true;
+	}
+
+	void oldFolderResultDoesNotReplaceNewRequest()
+	{
+		QFETCH(bool, old_failure);
+		QTemporaryDir files(QDir::currentPath() + "/treewalker-stale-request-XXXXXX");
+		QVERIFY(files.isValid());
+		const QString first = files.filePath("a");
+		const QString second = files.filePath("b");
+		QVERIFY(QDir().mkpath(first));
+		QVERIFY(QDir().mkpath(second));
+		auto gate = std::make_shared<WorkerGate>();
+		auto calls = std::make_shared<std::atomic<int>>(0);
+		MainWindow window(nullptr, [gate, calls, first, old_failure](LocationData data, auto const &) {
+			bool old = data.path == first && ++*calls == 1;
+			if (old) {
+				gate->block();
+				if (old_failure) throw QString("late stale error");
+			}
+			FileInfo2 info;
+			info.name = old ? "old.txt" : "fresh.txt";
+			info.path = data.path + "/" + info.name;
+			data.files = {info};
+			return data;
+		});
+		ReleaseWorkers cleanup{gate};
+		QVERIFY(prepareWindow(window));
+		QVERIFY(window.makeTreeCompletely());
+		window.openDir(ItemIdList(first));
+		QVERIFY(gate->entered.tryAcquire(1, 5000));
+		window.openDir(ItemIdList(second));
+		QTRY_COMPARE(window.fileitemmodel()->index(0, 0).data(PathRole).toString(), second + "/fresh.txt");
+		window.openDir(ItemIdList(first));
+		QTRY_COMPARE(window.fileitemmodel()->index(0, 0).data(PathRole).toString(), first + "/fresh.txt");
+		gate->release.release();
+		QVERIFY(gate->waitAll());
+		QCoreApplication::processEvents();
+		QCOMPARE(window.fileitemmodel()->index(0, 0).data(PathRole).toString(), first + "/fresh.txt");
+		QVERIFY(!hasStatus(window, "late stale error"));
+	}
+
+	void shutdownSharesDeadline_data()
+	{
+		QTest::addColumn<int>("list_count");
+		QTest::addColumn<int>("thumbnail_count");
+		QTest::addColumn<bool>("late_failure");
+		QTest::newRow("folder request") << 1 << 0 << false;
+		QTest::newRow("thumbnail workers") << 0 << 8 << false;
+		QTest::newRow("all workers") << 4 << 8 << false;
+		QTest::newRow("late errors") << 4 << 8 << true;
+	}
+
+	void shutdownSharesDeadline()
+	{
+		QFETCH(int, list_count);
+		QFETCH(int, thumbnail_count);
+		QFETCH(bool, late_failure);
+		QTemporaryDir files(QDir::currentPath() + "/treewalker-shutdown-XXXXXX");
+		QVERIFY(files.isValid());
+		for (int i = 0; i < list_count; ++i) QVERIFY(QDir().mkpath(files.filePath(QString::number(i))));
+		auto gate = std::make_shared<WorkerGate>();
+		auto window = std::make_unique<MainWindow>(nullptr,
+			[gate, prefix = files.path(), list_count, late_failure](LocationData data, auto const &) {
+				if (list_count && data.path.startsWith(prefix)) {
+					gate->block();
+					if (late_failure) throw QString("late folder error");
+				}
+				return data;
+			}, [gate, late_failure](auto const &) {
+				gate->block();
+				if (late_failure) throw std::runtime_error("late thumbnail error");
+				return QImage{};
+			});
+		ReleaseWorkers cleanup{gate};
+		QVERIFY(prepareWindow(*window));
+		window->reloadContents();
+		for (int i = 0; i < list_count; ++i) {
+			QString path = files.filePath(QString::number(i));
+			window->openDir(ItemIdList(path));
+		}
+		for (int i = 0; i < thumbnail_count; ++i) {
+			FileInfo2 info;
+			info.path = files.filePath(QString("thumb-%1").arg(i));
+			window->queryThumbnail(info);
+		}
+		QVERIFY(gate->entered.tryAcquire(list_count + thumbnail_count, 5000));
+		ReleaseWatchdog watchdog(gate);
+		QElapsedTimer elapsed;
+		elapsed.start();
+		window.reset();
+		global->mainwindow = nullptr;
+		qInfo() << "Shutdown with" << list_count << "folder requests and" << thumbnail_count << "thumbnail workers:" << elapsed.elapsed() << "ms";
+		QVERIFY(elapsed.elapsed() < 1800);
+		gate->release.release(list_count + thumbnail_count);
+		QVERIFY(gate->waitAll());
+		QCoreApplication::processEvents();
+	}
+
 	void init()
 	{
 		global->incremental_search_text.clear();
@@ -597,6 +707,8 @@ private slots:
 int main(int argc, char **argv)
 {
 	QApplication app(argc, argv);
+	if (app.arguments().contains("--blocked-workers-child")) return blockedWorkersChild();
+	if (app.arguments().contains("--plugin-error-child")) return pluginErrorChild(app.arguments().value(app.arguments().indexOf("--plugin-error-child") + 1));
 #ifdef Q_OS_WIN
 	WindowsComApartment apartment;
 	if (!apartment.initialized()) return 1;
@@ -622,6 +734,8 @@ int main(int argc, char **argv)
 	result |= runStartupSettingsTests(argc, argv);
 	result |= runReadingSearchTests(argc, argv);
 	result |= runThumbnailLoaderTests(argc, argv);
+	result |= runWorkerShutdownTests(argc, argv);
+	result |= runPluginLoadingTests(argc, argv);
 #ifdef Q_OS_WIN
 	result |= runNetworkDiscoveryTests(argc, argv);
 	result |= runComWorkerTests(argc, argv);

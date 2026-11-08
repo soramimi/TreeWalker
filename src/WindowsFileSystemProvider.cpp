@@ -7,7 +7,7 @@
 #include <commoncontrols.h>
 #include <shlwapi.h>
 
-static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl, QHash<int, QIcon> &icon_cache);
+static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl, QHash<int, QImage> &icon_cache);
 
 static inline WindowsShellAPI *shapi()
 {
@@ -190,7 +190,7 @@ struct WindowsFileSystemProvider::Private {
 	FileInfo2 fileinfo;
 	HIMAGELIST hImageList = nullptr;
 	bool is_network = false;
-	QHash<int, QIcon> network_icon_cache; // system image index -> icon
+	QHash<int, QImage> network_icon_cache; // system image index -> worker-safe image
 };
 
 WindowsFileSystemProvider::WindowsFileSystemProvider(const QString &dir)
@@ -283,8 +283,14 @@ static QImage convertHIconToQImage(HICON hIcon)
 {
 	if (!hIcon) return {};
 #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
-	QPixmap pm = QtWin::fromHICON(hIcon);
-	return pm.toImage();
+	ICONINFO info{};
+	QImage image;
+	if (GetIconInfo(hIcon, &info)) {
+		if (info.hbmColor) image = WindowsShellAPI::convertHBitmapToQImage(info.hbmColor);
+		if (info.hbmColor) DeleteObject(info.hbmColor);
+		if (info.hbmMask) DeleteObject(info.hbmMask);
+	}
+	return image;
 #else
 	return QImage::fromHICON(hIcon);
 #endif
@@ -390,10 +396,10 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	if (isPhysicalFilesystemFolder(iidl_p)) {
 		// 物理ファイルシステムのフォルダはストックアイコンを使用する。
 		// （プレビューつきフォルダアイコンを生成させないため）
-		fi.icon = QIcon(QPixmap::fromImage(getStockFolderIcon()));
+		fi.image = getStockFolderIcon();
 	} else {
 		// 通常ファイルと仮想フォルダはシェルAPIからアイコンを取得する。
-		fi.icon = QIcon(QPixmap::fromImage(getIcon(hImageList, iidl_p)));
+		fi.image = getIcon(hImageList, iidl_p);
 	}
 	fi.size = qfi.size();
 	fi.modified = qfi.lastModified();
@@ -409,7 +415,7 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 
 // ネットワーク直下の項目用の軽量版。
 // QFileInfo（UNCパスへのアクセス）や項目ごとのアイコン生成を避ける。
-static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl, QHash<int, QIcon> &icon_cache)
+static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &iidl, QHash<int, QImage> &icon_cache)
 {
 	if (iidl.size() < 2 || !shapi()->isReady()) return {};
 
@@ -433,15 +439,15 @@ static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &ii
 
 	auto it = icon_cache.find(sfinfo.iIcon);
 	if (it == icon_cache.end()) {
-		QIcon icon;
+		QImage icon;
 		HICON hIcon = ImageList_GetIcon(reinterpret_cast<HIMAGELIST>(hImageList), sfinfo.iIcon, ILD_NORMAL);
 		if (hIcon) {
-			icon = QIcon(QPixmap::fromImage(convertHIconToQImage(hIcon)));
+			icon = convertHIconToQImage(hIcon);
 			DestroyIcon(hIcon);
 		}
 		it = icon_cache.insert(sfinfo.iIcon, icon);
 	}
-	fi.icon = it.value();
+	fi.image = it.value();
 
 	return fi;
 }

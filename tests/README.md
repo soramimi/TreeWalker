@@ -1,16 +1,21 @@
-# 回帰テスト（P1・P2）
+# 回帰テスト（P1・P2・P3）
 
 ## Qt による画面・移動・探索の検証
 
-Qt 6 の Qt Test と MSVC の開発環境を使用する。Debug 構成では `_bin/incrementalsearchplugind.dll`、Release 構成では `_bin/incrementalsearchplugin.dll` が必要になる。対応する Qt とプラグインの依存 DLL が `PATH` から見つかるようにする。vcpkg を使用する環境では、該当構成の `bin` も追加する。
+Qt 6 の Qt Test と MSVC の開発環境を使用する。Debug 構成では `_bin/incrementalsearchplugind.dll` と `_bin/filetypeplugind.dll`、Release 構成では末尾の `d` がない両プラグインが必要になる。対応する Qt とプラグインの依存 DLL が `PATH` から見つかるようにする。vcpkg を使用する環境では、該当構成の `bin` も追加する。
 
-検索テストが最新の実装を使用するよう、先に IncrementalSearchPlugin をビルドする。リポジトリのルートで、MSVC の開発者用コマンドプロンプトから実行する。
+テストが最新の実装を使用するよう、先に両プラグインをビルドする。FileTypePlugin は、対応する file / oniguruma の静的ライブラリと生成済み magic 辞書を用意しておく（`AGENTS.md` と `subprojects/FileTypePlugin/` のビルド設定を参照）。リポジトリのルートで、MSVC の開発者用コマンドプロンプトから実行する。
 検索プラグインのインターフェースは 2.0。読みキャッシュ API の追加前の DLL / SO は新しい本体・テストから使用できないため、同じ構成で再ビルドする。
 
 ```bat
 mkdir build\search-plugin
 cd build\search-plugin
 qmake ..\..\subprojects\IncrementalSearchPlugin\IncrementalSearchPlugin.pro CONFIG+=debug
+jom
+cd ..\..
+mkdir build\filetype-plugin
+cd build\filetype-plugin
+qmake ..\..\subprojects\FileTypePlugin\FileTypePlugin.pro CONFIG+=debug
 jom
 cd ..\..
 mkdir build\p1-tests
@@ -30,8 +35,28 @@ _bin\TreeWalkerTests.exe -platform offscreen
 - `startup_settings_tests.cpp` は一時 INI を使用し、保存値の再読み込み、欠損ファイル・キーの既定値、設定画面との一致、キャンセル時の設定保持を検証する。ユーザーの設定ファイルは使用しない。
 - `reading_search_tests.cpp` はプラグインに組み込まれた実際の MeCab 辞書を使用し、形態素をまたぐ読みの検索と、元文字列の復元・強調範囲を従来 API と準備済み API の両方で検証する。モデルのフィルター更新・詳細とサムネイルの描画で読み生成回数が増えないこと、名前変更後の更新、拡張子分割・長い名前・Unicode を確認する。1,000 件の名前の準備時間と、検索のキャッシュ有無による時間も参考値として出力し、時間の閾値では合否を決めない。P2-06 の `nn` 変換は現行仕様を維持する。
 - `thumbnail_loader_tests.cpp` は制御可能なデコーダーとセマフォで、成功・失敗のキャッシュ、同一パスの重複防止、処理中の取り消し・再要求・キャッシュ消去・メタデータ変更、失敗結果の追い出し、停止・再開を検証する。固定時間の sleep で完了順を仮定しない。実画像と非画像、失敗後に画像へ変わるケースも確認する。`p1_regression.cpp` では実際の F5 入力からサムネイルが更新されることも検証する。
+- `worker_shutdown_tests.cpp` は停止しない一覧取得・画像取得をセマフォで制御し、通知元の破棄後の完了、再開時の状態分離、スレッドローカル解放中の待機上限を確認する。子プロセスでは一覧取得 4 件とサムネイル 8 件を止めたまま、終了要求から 3 秒以内に正常終了することを確認する。`p1_regression.cpp` は主画面の破棄が共通の 1 秒の待機期限を使うこと、破棄後の遅い成功・失敗、A → B → A の古い結果を検証する。正常時の順序はセマフォで制御し、退行時のハングを防ぐ watchdog は別に設ける。
+- `plugin_loading_tests.cpp` は一時パスによるファイル欠落・不正ライブラリ、テスト用ファクトリーによる型不一致・生成失敗・初期化失敗、生成物の解放を検証する。実際のファイル種別プラグインも初期化し、子プロセスでエラーダイアログの内容と非ゼロ終了を確認する。利用中のプラグインは移動・破損させない。
 - `com_workers_tests.cpp` は Windows の実際の COM を使用し、初期化の入れ子と失敗、暗黙 MTA、スレッドごとの Shell 所有と解放、一覧・実画像のサムネイル取得、待機中の STA メッセージ処理を検証する。
+- 一覧とサムネイルの完了・失敗 signal は GUI スレッドから届く。COM の状態は通知先ではなく実際のバックエンド内で計測し、終了時は TLS / COM の解放まで含めた完了を確認する。
 - 正常移動のテストは実行ディレクトリ内に一時フォルダを作り、終了時に削除する。非表示フォルダ配下ではなく、書き込み可能な通常のディレクトリから実行する。
+
+## Linux での AddressSanitizer による確認
+
+同じ Qt / Debug 構成の両プラグインを先にビルドする。以下は本体のソースとテストを ASan でビルドする例で、プラグイン自体は通常の Debug バイナリーを使う。
+
+```bash
+mkdir -p build/asan-tests
+cd build/asan-tests
+qmake6 ../../Tests.pro CONFIG+=debug \
+  'QMAKE_CXXFLAGS+=-fsanitize=address -fno-omit-frame-pointer' \
+  'QMAKE_LFLAGS+=-fsanitize=address' -after TARGET=TreeWalkerTestsAsan
+make -j4
+cd ../..
+ASAN_OPTIONS=detect_leaks=0 _bin/TreeWalkerTestsAsan -platform offscreen
+```
+
+`-after` で出力名を変更し、通常のテスト実行ファイルを上書きしない。ここではリーク検出を無効にし、解放後アクセス、配列の確保・解放の不一致などを確認する。停止中のバックエンドを持つ子プロセスでも同じ環境変数を引き継ぐ。
 
 ## Shell の戻り値と解放の検証
 

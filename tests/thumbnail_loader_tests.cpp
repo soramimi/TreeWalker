@@ -38,7 +38,8 @@ struct Decoder {
 // Release blocked decoders before the loader's destructor, including on failure.
 struct ReleaseDecoders {
 	Decoder &decoder;
-	~ReleaseDecoders() { decoder.release.release(100); }
+	ThumbnailLoader &loader;
+	~ReleaseDecoders() { decoder.release.release(100); loader.stop(QDeadlineTimer(5000)); }
 };
 
 } // namespace
@@ -59,7 +60,7 @@ private slots:
 		Decoder decoder;
 		decoder.succeeds = success;
 		ThumbnailLoader loader([&](auto const &path) { return decoder.load(path); });
-		ReleaseDecoders release{decoder};
+		ReleaseDecoders release{decoder, loader};
 		std::atomic<int> completed{0};
 		connect(&loader, &ThumbnailLoader::taskDone, &loader, [&](auto entity) {
 			// The completion signal must also allow reentrant cache queries.
@@ -99,7 +100,7 @@ private slots:
 		QFETCH(int, change);
 		Decoder decoder;
 		ThumbnailLoader loader([&](auto const &path) { return decoder.load(path); });
-		ReleaseDecoders release{decoder};
+		ReleaseDecoders release{decoder, loader};
 		std::atomic<int> completed{0};
 		connect(&loader, &ThumbnailLoader::taskDone, &loader, [&](auto) { ++completed; }, Qt::DirectConnection);
 		loader.start();
@@ -130,7 +131,7 @@ private slots:
 	{
 		Decoder decoder;
 		ThumbnailLoader loader([&](auto const &path) { return decoder.load(path); });
-		ReleaseDecoders release{decoder};
+		ReleaseDecoders release{decoder, loader};
 		std::atomic<int> completed{0};
 		connect(&loader, &ThumbnailLoader::taskDone, &loader, [&](auto) { ++completed; }, Qt::DirectConnection);
 		loader.start();
@@ -148,7 +149,7 @@ private slots:
 	{
 		Decoder decoder;
 		ThumbnailLoader loader([&](auto const &path) { return decoder.load(path); });
-		ReleaseDecoders release{decoder};
+		ReleaseDecoders release{decoder, loader};
 		std::atomic<int> completed{0};
 		connect(&loader, &ThumbnailLoader::taskDone, &loader, [&](auto) { ++completed; }, Qt::DirectConnection);
 		loader.start();

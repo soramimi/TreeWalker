@@ -50,6 +50,9 @@ struct LocationData {
 };
 Q_DECLARE_METATYPE(LocationData)
 
+// Backend captures own their resources and may outlive the window.
+using FetchLocationFunction = std::function<LocationData(LocationData, std::function<bool()> const &)>;
+
 class MainWindow : public QMainWindow {
 	Q_OBJECT
 	friend class MyApplication;
@@ -60,7 +63,7 @@ private:
 	struct Private;
 	Private *m;
 public:
-	explicit MainWindow(QWidget *parent = 0);
+	explicit MainWindow(QWidget *parent = 0, FetchLocationFunction fetcher = {}, ThumbnailLoader::LoadFunction thumbnail_load = {});
 	~MainWindow();
 	
 	enum ViewMode {

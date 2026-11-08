@@ -78,9 +78,12 @@ public:
 };
 
 struct MainWindow::Private {
+	Private(FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load)
+		: fetcher(std::move(fetcher)), thumbnail_loader(std::move(thumbnail_load)) {}
 	FileItemModel file_item_model;
 
 	ItemIdList current_iidl;
+	FetchLocationFunction fetcher;
 	ThumbnailLoader thumbnail_loader;
 	std::unordered_set<QString> thumbnail_paths;
 	StatusLabel *status_label;
@@ -182,9 +185,9 @@ void MainWindow::addPlaceholder(FolderTreeItem *item)
 	if (item->addChild(placeholder.get())) placeholder.release();
 }
 
-MainWindow::MainWindow(QWidget *parent)
+MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load)
 	: QMainWindow(parent)
-	, m(new Private())
+	, m(new Private(std::move(fetcher), std::move(thumbnail_load)))
 	, ui(new Ui::MainWindow)
 {
 	ui->setupUi(this);
@@ -235,15 +238,16 @@ MainWindow::MainWindow(QWidget *parent)
 
 MainWindow::~MainWindow()
 {
-	for (std::shared_ptr<FetchLocationThread> &thread : m->fetch_location_threads) {
-		if (thread->isRunning()) {
-			thread->requestInterruption();
-			thread->wait();
-		}
-	}
+	const QDeadlineTimer deadline(1000);
+	for (auto const &thread : m->fetch_location_threads) thread->requestInterruption();
+	m->thumbnail_loader.requestStop();
 #ifdef Q_OS_WIN
 	m->network_discovery_thread.stop();
 #endif
+	for (std::shared_ptr<FetchLocationThread> &thread : m->fetch_location_threads) {
+		thread->wait(deadline);
+	}
+	m->thumbnail_loader.wait(deadline);
 	delete m;
 	delete ui;
 }
@@ -623,7 +627,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		while (i > 0) {
 			i--;
 			auto t = m->fetch_location_threads[i];
-			if (!t->isRunning()) {
+			if (!t->isRunning() && t.get() != sender()) {
 				m->fetch_location_threads.erase(m->fetch_location_threads.begin() + i);
 			}
 		}
@@ -647,6 +651,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 				if (!m->hidden_files_visible && info.ishidden) continue;
 				FileItemModel::Item fileitem;
 				fileitem.info = info;
+				if (!info.image.isNull()) fileitem.icon_ = QIcon(QPixmap::fromImage(info.image));
 				fileitem.name = nameText(info);
 				fileitem.path = info.path;
 				if (info.isdir) {
@@ -770,20 +775,15 @@ void MainWindow::updateFileView()
 	}
 #endif
 
-	if (loc.isDir()) {
-		auto fs = newFileSystemPtr(loc.iidl);
-		if (!fs->hasReadPermission()) {
-			m->current_location.kind = Kind::NotPermittedDirectory;
-			refreshFileList2(loc, true);
-			return;
-		}
-	}
-
-	std::shared_ptr<FetchLocationThread> t = std::make_shared<FetchLocationThread>();
+	std::shared_ptr<FetchLocationThread> t = std::make_shared<FetchLocationThread>(m->fetcher);
 	t->data = loc;
 	m->fetch_location_threads.push_back(t);
 	connect(t.get(), &FetchLocationThread::done, this, [this, generation](LocationData const &location) {
-		if (generation == m->fetch_generation) onRefreshFileListDone(location);
+		if (generation != m->fetch_generation) return;
+		if (location.kind == Kind::NotPermittedDirectory && location.path == m->current_location.path && location.iidl == m->current_location.iidl) {
+			m->current_location.kind = Kind::NotPermittedDirectory;
+		}
+		onRefreshFileListDone(location);
 	});
 	connect(t.get(), &FetchLocationThread::failed, this, [this, generation](LocationData const &location, QString const &message) {
 		if (generation != m->fetch_generation || location != m->current_location) return;
@@ -1528,6 +1528,7 @@ void MainWindow::clearIconCache()
 
 QIcon MainWindow::getIcon(const FileInfo2 &info)
 {
+	if (!info.image.isNull()) return QIcon(QPixmap::fromImage(info.image));
 	QFileIconProvider const &iconprov = m->icon_provider;
 
 	if (!info.icon.isNull()) {

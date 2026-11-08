@@ -7,6 +7,7 @@
 
 #include <QDir>
 #include <QElapsedTimer>
+#include <QThread>
 #include <QTemporaryDir>
 #include <QtTest>
 #include <array>
@@ -53,36 +54,18 @@ struct ApartmentExitProbe {
 	~ApartmentExitProbe() { *result = probeApartment(flags); }
 };
 
-class FetchProbeThread : public FetchLocationThread {
-public:
+struct FetchProbe {
 	HRESULT before = E_UNEXPECTED;
 	APTTYPE before_type = APTTYPE_CURRENT;
 	APTTYPEQUALIFIER before_qualifier = APTTYPEQUALIFIER_NONE;
+	HRESULT during = E_UNEXPECTED;
+	APTTYPE during_type = APTTYPE_CURRENT;
 	HRESULT after_thread_locals = E_UNEXPECTED;
-	void run() override
-	{
-		thread_local ApartmentExitProbe exit_probe{&after_thread_locals};
-		before = apartmentType(&before_type, &before_qualifier);
-		FetchLocationThread::run();
-	}
 };
 
-class MtaFetchProbeThread : public FetchLocationThread {
-public:
-	HRESULT initialized = E_UNEXPECTED;
-	HRESULT after_failure = E_UNEXPECTED;
-	HRESULT after_outer = E_UNEXPECTED;
-	APTTYPE type = APTTYPE_CURRENT;
-	void run() override
-	{
-		{
-			WindowsComApartment outer(COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
-			initialized = outer.result();
-			FetchLocationThread::run();
-			after_failure = apartmentType(&type);
-		}
-		after_outer = probeApartment(COINIT_APARTMENTTHREADED);
-	}
+struct ExitCallback {
+	std::function<void()> callback;
+	~ExitCallback() { callback(); }
 };
 
 struct IdleTimerProbe {
@@ -295,68 +278,76 @@ private slots:
 		const ItemIdList drives = FileItem::getDrives().idlist();
 		QVERIFY(!drives.empty());
 		for (int iteration = 0; iteration < 3; ++iteration) {
-			FetchProbeThread worker;
+			auto probe = std::make_shared<FetchProbe>();
+			FetchLocationThread worker([probe](LocationData data, auto const &stop) {
+				thread_local ExitCallback exit{[probe] { probe->after_thread_locals = probeApartment(COINIT_MULTITHREADED); }};
+				probe->before = apartmentType(&probe->before_type, &probe->before_qualifier);
+				auto result = FetchLocationThread::fetch(std::move(data), stop);
+				probe->during = apartmentType(&probe->during_type);
+				return result;
+			});
 			worker.data.kind = Kind::Directory;
 			worker.data.iidl = drives;
 			worker.data.path = "//itemidlist//" + QString::fromLatin1(drives.iidl().toHex());
-			HRESULT during = E_UNEXPECTED;
-			APTTYPE type = APTTYPE_CURRENT;
 			int notifications = 0;
 			connect(&worker, &FetchLocationThread::done, &worker, [&](LocationData const &) {
-				during = apartmentType(&type);
+				QCOMPARE(QThread::currentThread(), qApp->thread());
 				++notifications;
-			}, Qt::DirectConnection);
+			});
 			worker.start();
-			const bool finished = worker.wait(5000);
-			if (!finished) {
-				worker.requestInterruption();
-				worker.wait();
-			}
-			QVERIFY2(finished, "Shell enumeration did not finish within five seconds");
-			QVERIFY(hasNoExplicitApartment(worker.before, worker.before_type, worker.before_qualifier));
+			QVERIFY2(worker.wait(QDeadlineTimer(5000)), "Shell enumeration did not finish within five seconds");
+			QVERIFY(hasNoExplicitApartment(probe->before, probe->before_type, probe->before_qualifier));
 			QCOMPARE(notifications, 1);
-			QCOMPARE(during, HRESULT(S_OK));
-			QCOMPARE(type, APTTYPE_STA);
+			QCOMPARE(probe->during, HRESULT(S_OK));
+			QCOMPARE(probe->during_type, APTTYPE_STA);
 			QVERIFY(!worker.data.files.empty());
-			QCOMPARE(worker.after_thread_locals, HRESULT(S_OK));
+			for (auto const &info : worker.data.files) QVERIFY(info.icon.isNull());
+			QCOMPARE(probe->after_thread_locals, HRESULT(S_OK));
 		}
 	}
 
 	void enumerationInitializationFailurePreservesOuterApartment()
 	{
-		MtaFetchProbeThread worker;
+		struct Probe {
+			HRESULT initialized = E_UNEXPECTED;
+			HRESULT after_failure = E_UNEXPECTED;
+			HRESULT after_outer = E_UNEXPECTED;
+			APTTYPE type = APTTYPE_CURRENT;
+		};
+		auto probe = std::make_shared<Probe>();
+		FetchLocationThread worker([probe](LocationData data, auto const &stop) -> LocationData {
+			QString error;
+			{
+				WindowsComApartment outer(COINIT_MULTITHREADED | COINIT_DISABLE_OLE1DDE);
+				probe->initialized = outer.result();
+				try { FetchLocationThread::fetch(std::move(data), stop); }
+				catch (QString const &message) { error = message; }
+				probe->after_failure = apartmentType(&probe->type);
+			}
+			probe->after_outer = probeApartment(COINIT_APARTMENTTHREADED);
+			throw error;
+		});
 		worker.data.kind = Kind::Directory;
 		worker.data.iidl = FileItem::getDrives().idlist();
 		worker.data.path = "//itemidlist//" + QString::fromLatin1(worker.data.iidl.iidl().toHex());
 		int failures = 0;
 		int completions = 0;
 		QString error;
-		HRESULT during_failure = E_UNEXPECTED;
-		APTTYPE type = APTTYPE_CURRENT;
 		connect(&worker, &FetchLocationThread::failed, &worker, [&](LocationData const &, QString const &message) {
+			QCOMPARE(QThread::currentThread(), qApp->thread());
 			++failures;
 			error = message;
-			during_failure = apartmentType(&type);
-		}, Qt::DirectConnection);
-		connect(&worker, &FetchLocationThread::done, &worker, [&](LocationData const &) {
-			++completions;
-		}, Qt::DirectConnection);
+		});
+		connect(&worker, &FetchLocationThread::done, &worker, [&](LocationData const &) { ++completions; });
 		worker.start();
-		const bool finished = worker.wait(5000);
-		if (!finished) {
-			worker.requestInterruption();
-			worker.wait();
-		}
-		QVERIFY2(finished, "COM initialization failure did not finish promptly");
-		QCOMPARE(worker.initialized, HRESULT(S_OK));
+		QVERIFY2(worker.wait(QDeadlineTimer(5000)), "COM initialization failure did not finish promptly");
+		QCOMPARE(probe->initialized, HRESULT(S_OK));
 		QCOMPARE(failures, 1);
 		QCOMPARE(completions, 0);
 		QVERIFY(!error.isEmpty());
-		QCOMPARE(during_failure, HRESULT(S_OK));
-		QCOMPARE(type, APTTYPE_MTA);
-		QCOMPARE(worker.after_failure, HRESULT(S_OK));
-		QCOMPARE(worker.type, APTTYPE_MTA);
-		QCOMPARE(worker.after_outer, HRESULT(S_OK));
+		QCOMPARE(probe->after_failure, HRESULT(S_OK));
+		QCOMPARE(probe->type, APTTYPE_MTA);
+		QCOMPARE(probe->after_outer, HRESULT(S_OK));
 	}
 
 	void thumbnailWorkersInitializeCom()
@@ -368,13 +359,15 @@ private slots:
 		for (int iteration = 0; iteration < 3; ++iteration) {
 			const QString path = directory.filePath(QString("thumbnail-%1.bmp").arg(iteration));
 			QVERIFY(source.save(path, "BMP"));
-			ThumbnailLoader loader;
+			auto probe = std::make_shared<FetchProbe>();
+			ThumbnailLoader loader([probe](QString const &path) {
+				probe->during = apartmentType(&probe->during_type);
+				return WindowsShellAPI::queryThumbnail(path);
+			});
 			std::atomic<int> notifications{0};
-			HRESULT during = E_UNEXPECTED;
-			APTTYPE type = APTTYPE_CURRENT;
 			QImage image;
 			connect(&loader, &ThumbnailLoader::taskDone, &loader, [&](std::shared_ptr<ThumbnailLoader::Entiry> entity) {
-				during = apartmentType(&type);
+				QCOMPARE(QThread::currentThread(), qApp->thread());
 				image = entity->image;
 				notifications.fetch_add(1, std::memory_order_release);
 			}, Qt::DirectConnection);
@@ -382,8 +375,8 @@ private slots:
 			QVERIFY(!loader.query(path));
 			QTRY_VERIFY_WITH_TIMEOUT(notifications.load(std::memory_order_acquire) > 0, 5000);
 			loader.stop();
-			QCOMPARE(during, HRESULT(S_OK));
-			QCOMPARE(type, APTTYPE_STA);
+			QCOMPARE(probe->during, HRESULT(S_OK));
+			QCOMPARE(probe->during_type, APTTYPE_STA);
 			QVERIFY(!image.isNull());
 			QVERIFY(image.width() <= 128 && image.height() <= 128);
 			auto cached = loader.query(path);
@@ -401,13 +394,13 @@ private slots:
 		image.fill(Qt::blue);
 		QVERIFY(image.save(path, "BMP"));
 		auto probe = std::make_shared<IdleTimerProbe>();
-		ThumbnailLoader loader;
-		connect(&loader, &ThumbnailLoader::taskDone, &loader, [probe](std::shared_ptr<ThumbnailLoader::Entiry>) {
+		ThumbnailLoader loader([probe](QString const &path) {
 			probe->scheduling_thread = GetCurrentThreadId();
 			idle_timer_probe = probe;
 			probe->timer = SetTimer(nullptr, 0, 20, idleTimerCallback);
 			probe->scheduled.store(true, std::memory_order_release);
-		}, Qt::DirectConnection);
+			return WindowsShellAPI::queryThumbnail(path);
+		});
 		loader.start();
 		QVERIFY(!loader.query(path));
 		QElapsedTimer timeout;

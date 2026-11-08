@@ -8,7 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
-#include <thread>
+#include "WorkerThread.h"
 #include <vector>
 
 class NetworkDiscoveryThread : public QObject {
@@ -27,7 +27,8 @@ private:
 	struct State;
 	std::shared_ptr<State> state_;
 	Enumerator enumerator_;
-	std::thread thread_;
+	WorkerThread thread_;
+	bool started_ = false;
 	QTimer notification_timer_;
 	uint64_t delivered_revision_ = 0;
 	static void run(std::shared_ptr<State> state, Enumerator enumerate);

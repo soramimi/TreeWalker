@@ -58,6 +58,7 @@ SOURCES += \
 	src/main.cpp
 
 HEADERS += \
+	$$PWD/src/WorkerThread.h \
 	$$PWD/src/FileItemModel.h \
 	$$PWD/src/FileTableView.h \
 	$$PWD/src/FolderTreeView.h \

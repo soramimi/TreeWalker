@@ -3,6 +3,7 @@
 #include "common/misc.h"
 #include <QDebug>
 #include <QElapsedTimer>
+#include <QPointer>
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
@@ -99,10 +100,9 @@ public:
 	}
 };
 
-struct ThumbnailLoader::Private {
+struct ThumbnailLoader::State {
 	std::mutex mutex;
 	std::condition_variable cond;
-	std::vector<std::thread> threads;
 	bool interrupted = false;
 	quint64 generation = 0;
 	std::deque<std::shared_ptr<ThumbnailLoader::Entiry>> submission_queue;
@@ -110,19 +110,25 @@ struct ThumbnailLoader::Private {
 	std::unordered_map<QString, std::shared_ptr<Entiry>> running;
 	T_Cache<QString, std::shared_ptr<ThumbnailLoader::Entiry>> completion_map;
 	LoadFunction load;
-	Private(LoadFunction load, size_t capacity)
+	std::deque<std::shared_ptr<Entiry>> notifications;
+	QString error;
+	State(LoadFunction load, size_t capacity)
 		: completion_map(capacity), load(std::move(load)) {}
 };
 
 ThumbnailLoader::ThumbnailLoader(LoadFunction load, size_t cache_capacity)
-	: m(new Private(std::move(load), cache_capacity))
+	: m(std::make_shared<State>(load, cache_capacity))
+	, load_(std::move(load))
+	, capacity_(cache_capacity)
 {
+	notification_timer_.setInterval(10);
+	connect(&notification_timer_, &QTimer::timeout, this, &ThumbnailLoader::deliverResults);
 }
 
 ThumbnailLoader::~ThumbnailLoader()
 {
-	stop();
-	delete m;
+	requestStop();
+	wait(QDeadlineTimer(0));
 }
 
 #ifdef _WIN32
@@ -160,103 +166,145 @@ QImage ThumbnailLoader::resizeImageForThumbnail(QImage const &source)
 
 void ThumbnailLoader::start()
 {
-	std::lock_guard<std::mutex> lock(m->mutex);
-	if (!m->threads.empty()) return;
-	m->interrupted = false;
-	for (size_t i = 0; i < 8; i++) {
-		m->threads.emplace_back([this]{
+	if (!threads_.empty()) return;
+	if (detached_) {
+		m = std::make_shared<State>(load_, capacity_);
+		detached_ = false;
+	}
+	{
+		std::lock_guard<std::mutex> lock(m->mutex);
+		m->interrupted = false;
+	}
+	for (size_t i = 0; i < 8; ++i) {
+		threads_.emplace_back();
+		auto state = m;
+		threads_.back().start([state] { run(state); });
+	}
+	notification_timer_.start();
+}
+
+void ThumbnailLoader::run(std::shared_ptr<State> m)
+{
 #ifdef Q_OS_WIN
-			WindowsComApartment apartment;
-			if (!apartment.initialized()) {
-				qWarning() << "Cannot initialize COM for thumbnails:" << Qt::hex << static_cast<quint32>(apartment.result());
-				emit failed({}, tr("Cannot load thumbnails."));
-				return;
-			}
-			if (!WindowsShellAPI::forCurrentThread().isReady()) {
-				qWarning() << "Cannot initialize Windows Shell for thumbnails.";
-				emit failed({}, tr("Cannot load thumbnails."));
-				return;
-			}
+	WindowsComApartment apartment;
+	if (!apartment.initialized()) {
+		std::lock_guard<std::mutex> lock(m->mutex);
+		m->error = QStringLiteral("Cannot initialize COM for thumbnails.");
+		return;
+	}
+	if (!WindowsShellAPI::forCurrentThread().isReady()) {
+		std::lock_guard<std::mutex> lock(m->mutex);
+		m->error = QStringLiteral("Cannot initialize Windows Shell for thumbnails.");
+		return;
+	}
 #endif
-			while (true) {
+	while (true) {
 #ifdef Q_OS_WIN
-				// Shell handlers can require STA callbacks, including while idle.
-				if (!WindowsComApartment::pumpMessages()) return;
+		// Shell handlers can require STA callbacks, including while idle.
+		if (!WindowsComApartment::pumpMessages()) return;
 #endif
-				std::shared_ptr<ThumbnailLoader::Entiry> entity;
-				{
-					std::unique_lock<std::mutex> lock(m->mutex);
-					if (m->interrupted) break;
-					if (m->submission_queue.empty()) {
+		std::shared_ptr<ThumbnailLoader::Entiry> entity;
+		{
+			std::unique_lock<std::mutex> lock(m->mutex);
+			if (m->interrupted) break;
+			if (m->submission_queue.empty()) {
 #ifdef Q_OS_WIN
-						m->cond.wait_for(lock, std::chrono::milliseconds(20));
+				m->cond.wait_for(lock, std::chrono::milliseconds(20));
 #else
-						m->cond.wait(lock);
+				m->cond.wait(lock);
 #endif
-						continue;
-					}
-					entity = m->submission_queue.front();
-					m->submission_queue.pop_front();
-					auto wanted = m->requested.find(entity->path);
-					if (wanted == m->requested.end() || wanted->second != entity || m->running.count(entity->path)) continue;
-					m->running[entity->path] = entity;
-				}
-				if (entity) {
-					QImage img;
-					try {
-						if (m->load) {
-							img = m->load(entity->path);
-						} else if (!entity->path.endsWith(".icns", Qt::CaseInsensitive)) {
+				continue;
+			}
+			entity = m->submission_queue.front();
+			m->submission_queue.pop_front();
+			auto wanted = m->requested.find(entity->path);
+			if (wanted == m->requested.end() || wanted->second != entity || m->running.count(entity->path)) continue;
+			m->running[entity->path] = entity;
+		}
+		if (entity) {
+			QImage img;
+			try {
+				if (m->load) {
+					img = m->load(entity->path);
+				} else if (!entity->path.endsWith(".icns", Qt::CaseInsensitive)) {
 #ifdef _WIN32
-							img = winQueryThumbnail(entity->path);
+					img = winQueryThumbnail(entity->path);
 #else
-							img = QImage(entity->path);
+					img = QImage(entity->path);
 #endif
-						}
-					} catch (...) {
-						// A failed decoder is a completed, cacheable request too.
+				}
+			} catch (...) {
+				// A failed decoder is a completed, cacheable request too.
+			}
+			entity->image = resizeImageForThumbnail(img);
+			{
+				std::lock_guard<std::mutex> lock(m->mutex);
+				m->running.erase(entity->path);
+				auto wanted = m->requested.find(entity->path);
+				if (!m->interrupted && wanted != m->requested.end()) {
+					if (wanted->second == entity && entity->generation == m->generation) {
+						entity->last_access = QDateTime::currentDateTime();
+						m->completion_map.insert(entity->path, entity);
+						m->requested.erase(wanted);
+						m->notifications.push_back(entity);
+					} else {
+						m->submission_queue.push_back(wanted->second);
+						m->cond.notify_all();
 					}
-					entity->image = resizeImageForThumbnail(img);
-					bool notify = false;
-					{
-						std::lock_guard<std::mutex> lock(m->mutex);
-						m->running.erase(entity->path);
-						auto wanted = m->requested.find(entity->path);
-						if (!m->interrupted && wanted != m->requested.end()) {
-							if (wanted->second == entity && entity->generation == m->generation) {
-								entity->last_access = QDateTime::currentDateTime();
-								m->completion_map.insert(entity->path, entity);
-								m->requested.erase(wanted);
-								notify = true;
-							} else {
-								m->submission_queue.push_back(wanted->second);
-								m->cond.notify_all();
-							}
-						}
-					}
-					// Direct receivers may query the cache; do not hold its mutex.
-					if (notify) emit taskDone(entity);
 				}
 			}
-		});
+		}
 	}
 }
 
-void ThumbnailLoader::stop()
+void ThumbnailLoader::deliverResults()
 {
+	QPointer<ThumbnailLoader> alive(this);
+	auto state = m;
+	std::deque<std::shared_ptr<Entiry>> notifications;
+	QString error;
 	{
-		std::lock_guard<std::mutex> lock(m->mutex);
-		m->interrupted = true;
-		m->requested.clear();
-		m->submission_queue.clear();
-		m->cond.notify_all();
+		std::lock_guard<std::mutex> lock(state->mutex);
+		if (state->interrupted) return;
+		notifications.swap(state->notifications);
+		error.swap(state->error);
 	}
-	for (auto &t : m->threads) {
-		if (t.joinable()) {
-			t.join();
+	if (!error.isEmpty()) emit failed({}, error);
+	for (auto const &entity : notifications) {
+		if (!alive) return;
+		if (state != m) break;
+		{
+			std::lock_guard<std::mutex> lock(state->mutex);
+			if (state->interrupted) return;
 		}
+		if (isCurrent(entity)) emit taskDone(entity);
 	}
-	m->threads.clear();
+}
+
+void ThumbnailLoader::requestStop()
+{
+	notification_timer_.stop();
+	std::lock_guard<std::mutex> lock(m->mutex);
+	m->interrupted = true;
+	m->requested.clear();
+	m->submission_queue.clear();
+	m->notifications.clear();
+	m->cond.notify_all();
+}
+
+bool ThumbnailLoader::wait(QDeadlineTimer deadline)
+{
+	bool finished = true;
+	for (auto &thread : threads_) finished = thread.wait(deadline) && finished;
+	threads_.clear();
+	detached_ = detached_ || !finished;
+	return finished;
+}
+
+void ThumbnailLoader::stop(QDeadlineTimer deadline)
+{
+	requestStop();
+	wait(deadline);
 }
 
 std::shared_ptr<ThumbnailLoader::Entiry> ThumbnailLoader::query(QString const &path, QDateTime const &modified, qint64 size)
@@ -307,6 +355,7 @@ void ThumbnailLoader::clearRequests()
 	std::lock_guard<std::mutex> lock(m->mutex);
 	m->submission_queue.clear();
 	m->requested.clear();
+	m->notifications.clear();
 }
 
 void ThumbnailLoader::clearCache()
@@ -315,6 +364,7 @@ void ThumbnailLoader::clearCache()
 	m->submission_queue.clear();
 	m->requested.clear();
 	m->completion_map.clear();
+	m->notifications.clear();
 	++m->generation;
 }
 

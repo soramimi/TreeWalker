@@ -114,7 +114,6 @@ struct NetworkDiscoveryThread::State {
 	bool interrupted = false;
 	bool refresh_requested = false;
 	bool ready = false;
-	bool finished = false;
 	uint64_t revision = 0;
 	std::vector<Entry> files;
 };
@@ -144,10 +143,13 @@ NetworkDiscoveryThread::~NetworkDiscoveryThread()
 
 void NetworkDiscoveryThread::start()
 {
-	if (thread_.joinable()) return;
+	if (started_) return;
 	state_ = std::make_shared<State>();
 	delivered_revision_ = 0;
-	thread_ = std::thread(&NetworkDiscoveryThread::run, state_, enumerator_);
+	auto state = state_;
+	auto enumerate = enumerator_;
+	thread_.start([state, enumerate] { run(state, enumerate); });
+	started_ = true;
 	notification_timer_.start();
 }
 
@@ -220,11 +222,6 @@ void NetworkDiscoveryThread::run(std::shared_ptr<State> state, Enumerator enumer
 			++state->revision;
 		}
 	}
-	{
-		std::lock_guard<std::mutex> lock(state->mutex);
-		state->finished = true;
-	}
-	state->cv.notify_all();
 }
 
 bool NetworkDiscoveryThread::isReady() const
@@ -245,22 +242,15 @@ void NetworkDiscoveryThread::refresh()
 void NetworkDiscoveryThread::stop()
 {
 	notification_timer_.stop();
-	bool finished;
 	{
 		std::lock_guard<std::mutex> lock(state_->mutex);
 		state_->interrupted = true;
-		finished = state_->finished;
 	}
 	state_->cv.notify_all();
-	if (thread_.joinable()) {
-		if (finished) {
-			thread_.join();
-		} else {
-			// The worker owns its state and Shell objects, and never accesses this.
-			// A blocked Shell call can finish later without delaying window shutdown.
-			thread_.detach();
-		}
-	}
+	// Completion includes TLS/COM cleanup; a flag set just before returning
+	// from run() would still permit an unbounded join during TLS destruction.
+	thread_.wait(QDeadlineTimer(0));
+	started_ = false;
 }
 
 std::vector<FileInfo2> NetworkDiscoveryThread::files() const

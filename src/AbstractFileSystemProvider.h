@@ -4,6 +4,7 @@
 #include "ItemIdList.h"
 #include <QDateTime>
 #include <QIcon>
+#include <QImage>
 #include <memory>
 
 class QFileIconProvider;
@@ -22,6 +23,7 @@ struct FileInfo2 {
 	qint64 size = 0;
 	QDateTime modified;
 	QIcon icon;
+	QImage image; // Worker-safe icon data; convert to QIcon on the GUI thread.
 	bool isdir = false;
 	bool ishidden = false;
 

@@ -157,10 +157,17 @@ int main(int argc, char *argv[])
 	
 	// load plugins
 	{
-		global->file_type_detector = loadPlugin<FileType, FileTypeInterface>("filetypeplugin"); // file type detector plugin
-		global->incremental_search = loadPlugin<IncrementalSearch, IncrementalSearchInterface>("incrementalsearchplugin"); // incremental search plugin
-		if (!global->file_type_detector) return 1;
-		if (!global->incremental_search) return 1;
+		PluginLoadError error;
+		global->file_type_detector = loadPlugin<FileType, FileTypeInterface>("filetypeplugin", &error);
+		if (!global->file_type_detector) {
+			showPluginLoadError(error);
+			return 1;
+		}
+		global->incremental_search = loadPlugin<IncrementalSearch, IncrementalSearchInterface>("incrementalsearchplugin", &error);
+		if (!global->incremental_search) {
+			showPluginLoadError(error);
+			return 1;
+		}
 	}
 	
 	QPluginLoader loader("darkstyleplugin");
