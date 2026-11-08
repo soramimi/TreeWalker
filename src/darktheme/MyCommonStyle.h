@@ -6,6 +6,11 @@
 #include <QStyleOption>
 
 class MyCommonStyleBase {
+public:
+	enum class Theme {
+		Light,
+		Dark,
+	};
 protected:
 	bool x_styleHint(int *value, QStyle::StyleHint hint, const QStyleOption *option, const QWidget *widget, QStyleHintReturn *returnData) const;
 	bool x_pixelMetric(int *value, QStyle::PixelMetric metric, const QStyleOption *option, const QWidget *widget) const;
@@ -17,11 +22,6 @@ public:
 };
 
 template <typename T> class MyCommonStyle : public MyCommonStyleBase, public T {
-public:
-	enum class Theme {
-		Light,
-		Dark,
-	};
 private:
 	using Base = T;
 	Theme theme_ = Theme::Dark;

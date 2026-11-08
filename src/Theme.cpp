@@ -3,6 +3,9 @@
 #include <QRgb>
 #include <QProxyStyle>
 
+#include "darktheme/LightStyle.h"
+#include "darktheme/DarkStyle.h"
+
 // AbstractTheme
 
 
@@ -11,11 +14,11 @@
 
 // LightTheme
 
-#include "darktheme/LightStyle.h"
 
 QStyle *LightTheme::newStyle()
 {
-	return new LightStyle();
+	return new DarkStyle(MyCommonStyleBase::Theme::Light);
+	// return new DarkStyle(MyCommonStyleBase::Theme::Dark);
 }
 
 QImage LightTheme::graphColorMap()
@@ -55,9 +58,6 @@ ThemePtr createLightTheme()
 	return ThemePtr(p);
 }
 
-#ifdef USE_DARK_THEME
-
-#include "darktheme/DarkStyle.h"
 
 // DarkTheme
 
@@ -65,7 +65,7 @@ ThemePtr createLightTheme()
 
 QStyle *DarkTheme::newStyle()
 {
-	return new DarkStyle();
+	return new DarkStyle(MyCommonStyleBase::Theme::Dark);
 }
 
 QImage DarkTheme::graphColorMap()
@@ -126,4 +126,3 @@ ThemePtr createDarkTheme()
 	return ThemePtr(p);
 }
 
-#endif // USE_DAR_THEME
