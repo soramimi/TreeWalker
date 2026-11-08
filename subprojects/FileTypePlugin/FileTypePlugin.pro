@@ -25,12 +25,12 @@ win32:LIBS += -lole32 -loleaut32
 # zlib
 
 win32 {
-	LIBS += -lzlib
+	# LIBS += -lzlib
 	LIBS += -lzstd
 }
 
 !win32 {
-	LIBS += -lz
+	# LIBS += -lz
 	LIBS += -lzstd
 }
 
@@ -67,5 +67,5 @@ HEADERS += \
 	src/FileTypeWrapper.h \
 	src/zs.h
 
-SOURCES += lib/magic_mgc_zst.c
+SOURCES += gen/magic_mgc_zst.c
 
