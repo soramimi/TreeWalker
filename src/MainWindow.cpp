@@ -102,6 +102,32 @@ struct MainWindow::Private {
 	LocationData current_location;
 	QString last_location;
 	QList<std::shared_ptr<FetchLocationThread>> fetch_location_threads;
+	quint64 fetch_generation = 0;
+	bool location_loading = false;
+	struct ItemIdentity {
+		ItemIdList iidl;
+		QString path;
+		static ItemIdentity fromIndex(QModelIndex const &index)
+		{
+			return {index.data(IidlRole).value<ItemIdList>(), index.data(PathRole).toString()};
+		}
+		bool matches(QModelIndex const &index) const
+		{
+			return !path.isEmpty() ? path == index.data(PathRole).toString()
+				: !iidl.empty() && iidl == index.data(IidlRole).value<ItemIdList>();
+		}
+	};
+	struct ReloadSelection {
+		LocationData location;
+		ItemIdentity current;
+		std::vector<ItemIdentity> selected;
+		bool matchesLocation(LocationData const &other) const
+		{
+			// A filesystem PIDL can acquire new metadata during a refresh.
+			return !location.path.isEmpty() ? location.path == other.path : location == other;
+		}
+	};
+	std::optional<ReloadSelection> reload_selection;
 
 	bool hidden_files_visible = false;
 
@@ -148,10 +174,10 @@ static std::optional<std::vector<ItemIdList>> splitShellItemIdList(ItemIdList co
 
 void MainWindow::addPlaceholder(FolderTreeItem *item)
 {
-	auto placeholder = new_FolderTreeItem();
+	auto placeholder = std::make_unique<FolderTreeItem>();
 	placeholder->setData(0, KindRole, (int)Kind::Placeholder);
 	ui->treeView->setExpanded(item, false);
-	item->addChild(placeholder);
+	if (item->addChild(placeholder.get())) placeholder.release();
 }
 
 MainWindow::MainWindow(QWidget *parent)
@@ -442,13 +468,7 @@ void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent
 
 happy:;
 
-	{ // remove placeholder
-		int i = parent->childCount();
-		while (i > 0) {
-			i--;
-			delete parent->takeChild(i);
-		}
-	}
+	if (!parent->clearChildren()) return;
 
 	if (dirs.empty()) {
 		// addPlaceholder(parent);
@@ -590,6 +610,7 @@ void MainWindow::fetchSubFolders(FolderTreeItem *parent, bool check_placeholder)
 void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 {
 	if (!force && loc != m->current_location) return;
+	m->location_loading = false;
 	QString select_location = m->last_location;
 	int select_row = 0;
 
@@ -615,32 +636,12 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 	QElapsedTimer t;
 	t.start();
 
+	std::vector<FileItemModel::Item> items;
 	{
-		struct DeferResetModel {
-			FileItemModel *model;
-			DeferResetModel(FileItemModel *model)
-				: model(model)
-			{
-				model->beginResetModel();
-			}
-			~DeferResetModel() {
-				model->endResetModel();
-			}
-		};
-
-		DeferResetModel defer1(model);
-
-		model->clearItems();
-		model->setKind(loc.kind);
-
-		IncrementalSearchFilter filter = global->incremental_search->makeFilter(getIncrementalSearchText().toStdString());
-		
 		if (loc.isDir()) {
+			items.reserve(loc.files.size());
 			for (int row = 0; row < loc.files.size(); row++) {
 				FileInfo2 const &info = loc.files[row];
-				if (!global->incremental_search->match(fromQString(info.name), filter)) {
-					continue;
-				}
 				if (!m->hidden_files_visible && info.ishidden) continue;
 				FileItemModel::Item fileitem;
 				fileitem.info = info;
@@ -649,15 +650,12 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 				if (info.isdir) {
 					fileitem.size = -1;
 					fileitem.type = "<DIR>";
-					if (fileitem.path == select_location) {
-						select_row = model->count();
-					}
 				} else {
 					fileitem.size = info.size;
 					fileitem.type = typeText(info);
 				}
 				fileitem.modified = info.modified;
-				model->addItem(std::move(fileitem));
+				items.push_back(std::move(fileitem));
 			}
 		} else if (loc.kind == Kind::ChromeBookmark) {
 			auto it = m->bookmark_items.find(loc.path);
@@ -670,12 +668,19 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 				fileitem.info.isdir = info.folder;
 				if (info.folder) fileitem.info.iidl = ItemIdList(info.url);
 				fileitem.icon_ = info.folder ? m->default_folder_icon : m->default_file_icon;
-				model->addItem(std::move(fileitem));
+				items.push_back(std::move(fileitem));
 			}
 		}
 	}
+	const QString filter_text = filtertarget() == FilterTarget::FolderTreeSearch ? QString() : getIncrementalSearchText();
+	model->replaceItems(loc.kind, std::move(items), filter_text);
+	for (int row = 0; row < model->rowCount(); ++row) {
+		if (model->item(row)->info.isdir && model->item(row)->path == select_location) {
+			select_row = row;
+			break;
+		}
+	}
 
-	ui->tableView->reset();
 	ui->tableView->setKind(loc.kind);
 	ui->thumbnailView->setKind(loc.kind);
 	ui->tableView->setPath(loc.path);
@@ -698,10 +703,14 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		ui->thumbnailView->selectRow(select_row);
 		break;
 	}
+	restoreReloadSelection();
 }
 
 void MainWindow::updateFileView()
 {
+	const quint64 generation = ++m->fetch_generation;
+	m->location_loading = false;
+	m->reload_selection.reset();
 	auto item = ui->treeView->currentItem();
 
 	{
@@ -766,17 +775,31 @@ void MainWindow::updateFileView()
 	std::shared_ptr<FetchLocationThread> t = std::make_shared<FetchLocationThread>();
 	t->data = loc;
 	m->fetch_location_threads.push_back(t);
-	connect(t.get(), &FetchLocationThread::done, this, &MainWindow::onRefreshFileListDone);
-	connect(t.get(), &FetchLocationThread::failed, this, [this](LocationData const &location, QString const &message) {
-		if (location != m->current_location) return;
+	connect(t.get(), &FetchLocationThread::done, this, [this, generation](LocationData const &location) {
+		if (generation == m->fetch_generation) onRefreshFileListDone(location);
+	});
+	connect(t.get(), &FetchLocationThread::failed, this, [this, generation](LocationData const &location, QString const &message) {
+		if (generation != m->fetch_generation || location != m->current_location) return;
 		refreshFileList2(location, true);
 		setStatusBarText(message);
 	});
+	m->location_loading = true;
 	t->start();
 }
 
 void MainWindow::updateViews()
 {
+	const FilterTarget previous_target = filtertarget();
+	const QString previous_filter = previous_target == FilterTarget::FolderTreeSearch ? QString() : getIncrementalSearchText();
+	QAbstractItemView *view = viewmode() == List ? static_cast<QAbstractItemView *>(ui->tableView) : ui->thumbnailView;
+	Private::ReloadSelection selection;
+	selection.location = m->current_location;
+	selection.current = Private::ItemIdentity::fromIndex(view->currentIndex());
+	if (view->selectionModel()) {
+		for (auto const &index : view->selectionModel()->selectedRows()) {
+			selection.selected.push_back(Private::ItemIdentity::fromIndex(index));
+		}
+	}
 	ItemIdList iidl = currentIIDL();
 	QString previous_location = currentLocation();
 	makeTreeCompletely();
@@ -786,6 +809,37 @@ void MainWindow::updateViews()
 	}
 	if (iidl.empty()) iidl = m->drive_root->iidl();
 	openDir(iidl);
+	if (selection.matchesLocation(m->current_location)) {
+		m->filter_target = previous_target;
+		if (!previous_filter.isEmpty()) setIncrementalSearchText(previous_filter);
+		m->reload_selection = std::move(selection);
+		if (!m->location_loading) restoreReloadSelection();
+		updateStatusBarText();
+	}
+}
+
+void MainWindow::restoreReloadSelection()
+{
+	if (!m->reload_selection) return;
+	auto selection = std::move(*m->reload_selection);
+	m->reload_selection.reset();
+	if (!selection.matchesLocation(m->current_location)) return;
+	QAbstractItemView *view = viewmode() == List ? static_cast<QAbstractItemView *>(ui->tableView) : ui->thumbnailView;
+	if (!view->selectionModel()) return;
+	view->selectionModel()->clearSelection();
+	for (int row = 0; row < fileitemmodel()->rowCount(); ++row) {
+		auto index = fileitemmodel()->index(row, 0);
+		for (auto const &identity : selection.selected) {
+			if (identity.matches(index)) {
+				view->selectionModel()->select(index, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+				break;
+			}
+		}
+		if (selection.current.matches(index)) {
+			view->selectionModel()->setCurrentIndex(index, QItemSelectionModel::NoUpdate);
+			view->scrollTo(index);
+		}
+	}
 }
 
 QString MainWindow::nameText(FileInfo2 const &info)
@@ -824,13 +878,26 @@ void MainWindow::moveToParent()
  */
 void MainWindow::setIncrementalSearchText(QString const &text)
 {
+	m->reload_selection.reset();
 	// qDebug() << text;
 	FilterTarget ft = filtertarget();
 
 	global->incremental_search_text = text;
 	
 	if (ft == FilterTarget::FolderTreeSearch) {
-		ui->treeView->setFilter(text);
+		auto *previous = ui->treeView->currentItem();
+		const bool had_selection = previous != nullptr;
+		const ItemIdList previous_iidl = previous ? previous->iidl() : ItemIdList{};
+		{
+			// The reset temporarily clears selection. Only the final location
+			// should request a new file list, and an unchanged location needs none.
+			QSignalBlocker block(ui->treeView);
+			ui->treeView->setFilter(text);
+		}
+		auto *current = ui->treeView->currentItem();
+		if (had_selection != (current != nullptr) || (current && current->iidl() != previous_iidl)) {
+			on_treeView_currentItemChanged(current, nullptr);
+		}
 	} else if (ft == FilterTarget::FileListViewSearch) {
 		ui->tableView->setFilterText(text);
 	} else if (ft == FilterTarget::ThumbnailViewSearch) {
@@ -990,10 +1057,10 @@ void MainWindow::updateStatusBarText()
 		m->status_bar_label->setTextFormat(Qt::TextFormat::RichText);
 		m->status_bar_label->setText(msg_text);
 		m->status_bar_label->show();
-		updateStatusBarText2();
 	} else {
 		m->status_bar_label->setText({});
 	}
+	updateStatusBarText2();
 }
 
 void MainWindow::updateStatusBarText2()
@@ -1001,12 +1068,8 @@ void MainWindow::updateStatusBarText2()
 	auto *model = fileitemmodel();
 	int n = model->rowCount();
 	
-	if (isIncrementalSearching()) {
-		if (QApplication::focusWidget() == ui->treeView) {
-			setStatusBarText({});
-		} else {
-			setStatusBarText(QString("%1/%2 items").arg(n).arg(model->unfilteredCount()));
-		}
+	if (model->isFiltered()) {
+		setStatusBarText(QString("%1/%2 items").arg(n).arg(model->unfilteredCount()));
 	} else {
 		setStatusBarText(QString("%1 items").arg(n));
 	}
@@ -1020,10 +1083,23 @@ bool MainWindow::appendCharToFilterText(QString const &add, MainWindow::FilterTa
 {
 	if (add.isEmpty()) return false;
 	
-	QString filter = getIncrementalSearchText();
+	const bool same_pane = (ft == FilterTarget::FolderTreeSearch) == (filtertarget() == FilterTarget::FolderTreeSearch);
+	QString filter = same_pane ? getIncrementalSearchText() : QString();
 	QString newfilter = incrementalsearch::appendCharToFilterText(filter, add);
 	if (newfilter == filter) return false; // if no change, nothing to do
 	
+	if (!same_pane && isIncrementalSearching()) {
+		const ItemIdList selected = ui->treeView->currentItem() ? ui->treeView->currentItem()->iidl() : ItemIdList{};
+		{
+			QScopedValueRollback<bool> suppress(m->suppress_current_changed, true);
+			QSignalBlocker block(ui->treeView);
+			clearAllFilters();
+			if (!selected.empty()) ui->treeView->setCurrentItem(ui->treeView->itemFromIidl(selected));
+		}
+		if (selected.empty() && ui->treeView->currentItem()) {
+			on_treeView_currentItemChanged(ui->treeView->currentItem(), nullptr);
+		}
+	}
 	m->filter_target = ft;
 
 	setIncrementalSearchText(newfilter);
@@ -1335,22 +1411,50 @@ void MainWindow::thumbnailReady(std::shared_ptr<ThumbnailLoader::Entiry> entity)
 
 void MainWindow::setHiddenFilesVisible(bool f)
 {
-	m->hidden_files_visible = f;
+	const QString previous_filter = getIncrementalSearchText();
+	const bool tree_search = filtertarget() == FilterTarget::FolderTreeSearch;
+	ItemIdList selected = ui->treeView->currentItem() ? ui->treeView->currentItem()->iidl() : ItemIdList{};
 	{
-		auto item = ui->treeView->currentItem();
+		QScopedValueRollback<bool> suppress(m->suppress_current_changed, true);
+		QSignalBlocker block(ui->treeView);
+		// Clearing a tree filter restores the pre-search selection and expansion.
+		// Keep the search result's identity before any subtree can be replaced.
+		clearAllFilters();
+		if (selected.empty() && ui->treeView->currentItem()) selected = ui->treeView->currentItem()->iidl();
+		const auto expanded = ui->treeView->expandedItemIds();
+		auto *item = selected.empty() ? nullptr : ui->treeView->itemFromIidl(selected);
+		m->hidden_files_visible = f;
+		if (!f) {
+			// Rebuild the parent of the outermost hidden ancestor so that the
+			// selection cannot remain inside a folder removed by this toggle.
+			for (auto *ancestor = item; ancestor; ancestor = ancestor->parent()) {
+				Kind kind = static_cast<Kind>(ancestor->data(0, KindRole).toInt());
+				if (kind != Kind::Directory && kind != Kind::SubDirectory && kind != Kind::NotPermittedDirectory) continue;
+				QString path = ancestor->data(0, PathRole).toString();
+				if ((ancestor->text().startsWith('.') || (!path.isEmpty() && QFileInfo(path).isHidden()))
+					&& ancestor->parent() && ui->treeView->indexFromItem(ancestor->parent()).isValid()) {
+					item = ancestor->parent();
+					selected = item->iidl();
+				}
+			}
+		}
 		if (item && static_cast<Kind>(item->data(0, KindRole).toInt()) != Kind::ChromeBookmark
 			&& location(item) != (QS)prefix_mycomputer) {
-			while (item->childCount() > 0) {
-				delete item->takeChild(item->childCount() - 1);
-			}
-
-			auto placeholder = new_FolderTreeItem();
-			placeholder->setData(0, KindRole, (int)Kind::Placeholder);
-			item->addChild(placeholder);
-
-			fetchSubFolders(item);
+			fetchSubFolders(item, false);
+			auto RestoreExpansion = [&](auto self, FolderTreeItem *node) -> void {
+				bool was_expanded = expanded.find(node->iidl()) != expanded.end();
+				if (was_expanded) fetchSubFolders(node);
+				ui->treeView->setExpanded(node, was_expanded);
+				for (int row = 0; row < node->childCount(); ++row) self(self, node->child(row));
+			};
+			RestoreExpansion(RestoreExpansion, item);
 		}
+		ui->treeView->setCurrentItem(selected.empty() ? nullptr : ui->treeView->itemFromIidl(selected));
+		if (!tree_search && !previous_filter.isEmpty()) setIncrementalSearchText(previous_filter);
+		setCurrentIIDL(selected);
+		ui->lineEdit_address->setText(locationInfo(ui->treeView->currentItem()).location);
 	}
+	m->thumbnail_loader.clearRequests();
 	updateFileView();
 }
 

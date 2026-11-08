@@ -94,7 +94,8 @@ void fillFilteredBG(QPainter *painter, const QRect &rect)
 
 QString appendCharToFilterText(QString filter, const QString &add)
 {
-	uchar c = *add.utf16();
+	if (add.isEmpty()) return filter;
+	char16_t c = add.at(0).unicode();
 	if (c == ASCII_BACKSPACE) {
 		int i = filter.size();
 		if (i > 0) {
@@ -102,7 +103,7 @@ QString appendCharToFilterText(QString filter, const QString &add)
 		}
 	} else if (c == ASCII_DELETE) {
 		filter.clear();
-	} else if (c >= 0x20 && c < 0x80 && (!isspace(c) && isprint(c))) {
+	} else if (c >= 0x21 && c <= 0x7e) {
 		filter.append(QChar(c));
 	}	
 	return filter;

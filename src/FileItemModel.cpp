@@ -91,6 +91,17 @@ void FileItemModel::addItem(Item &&item)
 	indices_.clear();
 }
 
+void FileItemModel::replaceItems(Kind kind, std::vector<Item> items, QString const &filter_text)
+{
+	auto filter = global->incremental_search->makeFilter(filter_text.toStdString());
+	beginResetModel();
+	items_ = std::move(items);
+	kind_ = kind;
+	filter_ = std::move(filter);
+	indices_.clear();
+	endResetModel();
+}
+
 IncrementalSearchFilter const &FileItemModel::filter() const
 {
 	return filter_;

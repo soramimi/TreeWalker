@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QAbstractItemModelTester>
 #include <QDesktopServices>
 #include <QDir>
 #include <QFile>
@@ -11,10 +12,12 @@
 #include <QUrl>
 
 #include "ApplicationGlobal.h"
+#include "BasicFileSystemProvider.h"
 #include "FileTableView.h"
 #include "FolderTreeView.h"
 #include "LoadPlugin.h"
 #include "MainWindow.h"
+#include "StatusLabel.h"
 #include "ThumbnailView.h"
 #include "subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
 #ifdef Q_OS_WIN
@@ -78,6 +81,26 @@ private:
 			model->addItem(std::move(item));
 		}
 		model->endResetModel();
+	}
+
+	static bool hasStatus(MainWindow const &window, QString const &text)
+	{
+		for (auto *label : window.findChildren<StatusLabel *>()) {
+			if (label->text() == text) return true;
+		}
+		return false;
+	}
+
+	static LocationData folderResult(FolderTreeItem const *item)
+	{
+		LocationData location;
+		location.kind = static_cast<Kind>(item->data(0, KindRole).toInt());
+		location.iidl = item->iidl();
+		location.path = item->data(0, PathRole).toString();
+		BasicFileSystemProvider provider(location.iidl);
+		while (provider.fetch()) location.files.push_back(provider.fileInfo());
+		MainWindow::sortFileInfoList(&location.files);
+		return location;
 	}
 
 private slots:
@@ -221,6 +244,218 @@ private slots:
 		QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
 		window.eventFilter(tree, &escape);
 		QVERIFY(global->incremental_search_text.isEmpty());
+	}
+
+	void treeSearchDoesNotFilterFileList_data()
+	{
+		QTest::addColumn<bool>("thumbnail");
+		QTest::newRow("details") << false;
+		QTest::newRow("thumbnails") << true;
+	}
+
+	void treeSearchDoesNotFilterFileList()
+	{
+		QFETCH(bool, thumbnail);
+		QTemporaryDir files(QDir::currentPath() + "/treewalker-p108-tree-XXXXXX");
+		QVERIFY(files.isValid());
+		for (QString const &folder : {QString("p108searchneedle-one"), QString("p108searchneedle-two")}) {
+			QVERIFY(QDir(files.path()).mkdir(folder));
+			QVERIFY(createFile(files.filePath(folder + "/p108searchneedle.txt")));
+			QVERIFY(createFile(files.filePath(folder + "/other.txt")));
+		}
+		MainWindow window;
+		QVERIFY(prepareWindow(window));
+		QVERIFY(window.makeTreeCompletely());
+		window.openDir(ItemIdList(files.filePath("p108searchneedle-one")));
+		auto *model = window.fileitemmodel();
+		auto *tree = window.findChild<FolderTreeView *>("treeView");
+		QVERIFY(tree);
+		QAbstractItemModelTester tester(model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+		QTRY_COMPARE(model->rowCount(), 2);
+		window.setViewMode(thumbnail ? MainWindow::Thumbnail : MainWindow::List);
+		window.show();
+		window.activateWindow();
+		window.setFocusItemsView();
+		QCoreApplication::processEvents();
+		QAbstractItemView *view = thumbnail ? static_cast<QAbstractItemView *>(window.findChild<ThumbnailView *>("thumbnailView"))
+			: window.findChild<FileTableView *>("tableView");
+		QVERIFY(view);
+		QTest::keyClicks(view, "other");
+		QCOMPARE(model->rowCount(), 1);
+		window.setFocusFolderTree();
+		QCoreApplication::processEvents();
+		QSignalSpy reset(model, &QAbstractItemModel::modelReset);
+		QTest::keyClicks(tree, "p108searchneedle");
+		tree->setCurrentItem(tree->itemFromIidl(ItemIdList(files.filePath("p108searchneedle-one"))));
+		QTRY_VERIFY(model->rowCount() == 2 && model->index(0, 0).data(PathRole).toString() == files.filePath("p108searchneedle-one/other.txt"));
+		QCOMPARE(global->incremental_search_text, QString("p108searchneedle"));
+		QCOMPARE(model->rowCount(), 2);
+		QCOMPARE(model->unfilteredCount(), 2);
+		QVERIFY(!model->isFiltered());
+		QVERIFY(hasStatus(window, "2 items"));
+
+		for (QString const &folder : {QString("p108searchneedle-two"), QString("p108searchneedle-one")}) {
+			reset.clear();
+			auto *item = tree->itemFromIidl(ItemIdList(files.filePath(folder)));
+			QVERIFY(item);
+			tree->setCurrentItem(item);
+			QTRY_VERIFY(reset.count() > 0);
+			QCOMPARE(model->rowCount(), 2);
+			QCOMPARE(model->unfilteredCount(), 2);
+		}
+		QTest::keyClick(tree, Qt::Key_Escape);
+		QVERIFY(global->incremental_search_text.isEmpty());
+		QCOMPARE(model->rowCount(), 2);
+		QCOMPARE(model->unfilteredCount(), 2);
+
+		QTest::keyClicks(tree, "unmatched-query");
+		QVERIFY(!tree->currentItem());
+		window.setFocusItemsView();
+		QTest::keyClicks(view, "other");
+		QCOMPARE(global->incremental_search_text, QString("other"));
+		QTRY_COMPARE(model->rowCount(), 1);
+		QCOMPARE(model->unfilteredCount(), 2);
+		QCOMPARE(model->index(0, 0).data(PathRole).toString(), files.filePath("p108searchneedle-one/other.txt"));
+		QTest::keyClicks(view, thumbnail ? "[" : "]");
+		view = thumbnail ? static_cast<QAbstractItemView *>(window.findChild<FileTableView *>("tableView"))
+			: window.findChild<ThumbnailView *>("thumbnailView");
+		QTest::keyClicks(view, ".txt");
+		QCOMPARE(global->incremental_search_text, QString("other.txt"));
+		QCOMPARE(model->rowCount(), 1);
+	}
+
+	void fileSearchSurvivesRefresh_data()
+	{
+		QTest::addColumn<bool>("thumbnail");
+		QTest::addColumn<QString>("query");
+		for (bool thumbnail : {false, true}) {
+			const QString prefix = thumbnail ? "thumbnails " : "details ";
+			QTest::newRow(qPrintable(prefix + "matches")) << thumbnail << QString("beta");
+			QTest::newRow(qPrintable(prefix + "zero matches")) << thumbnail << QString("unmatched-query");
+			QTest::newRow(qPrintable(prefix + "no search")) << thumbnail << QString();
+		}
+	}
+
+	void fileSearchSurvivesRefresh()
+	{
+		QFETCH(bool, thumbnail);
+		QFETCH(QString, query);
+		QTemporaryDir files(QDir::currentPath() + "/treewalker-p108-refresh-XXXXXX");
+		QVERIFY(files.isValid());
+		for (QString const &name : {QString("alpha.txt"), QString("beta1.txt"), QString("beta2.txt")}) {
+			QVERIFY(createFile(files.filePath(name)));
+		}
+		MainWindow window;
+		QVERIFY(prepareWindow(window));
+		QVERIFY(window.makeTreeCompletely());
+		window.openDir(ItemIdList(files.path()));
+		auto *model = window.fileitemmodel();
+		QAbstractItemModelTester tester(model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+		QTRY_COMPARE(model->rowCount(), 3);
+		window.setViewMode(thumbnail ? MainWindow::Thumbnail : MainWindow::List);
+		window.show();
+		window.activateWindow();
+		window.setFocusItemsView();
+		QCoreApplication::processEvents();
+		QAbstractItemView *view = thumbnail ? static_cast<QAbstractItemView *>(window.findChild<ThumbnailView *>("thumbnailView"))
+			: window.findChild<FileTableView *>("tableView");
+		QVERIFY(view);
+		if (!query.isEmpty()) QTest::keyClicks(view, qPrintable(query));
+		const bool zero_matches = query == "unmatched-query";
+		if (!zero_matches) {
+			view->selectionModel()->clearSelection();
+			for (int row = 0; row < model->rowCount(); ++row) {
+				auto index = model->index(row, 0);
+				if (index.data(PathRole).toString().contains("beta")) {
+					view->selectionModel()->select(index, QItemSelectionModel::Select | QItemSelectionModel::Rows);
+					view->selectionModel()->setCurrentIndex(index, QItemSelectionModel::NoUpdate);
+				}
+			}
+		}
+		QVERIFY(createFile(files.filePath("beta0.txt")));
+		int reset_depth = 0;
+		connect(model, &QAbstractItemModel::modelAboutToBeReset, &window, [&] { QCOMPARE(++reset_depth, 1); });
+		connect(model, &QAbstractItemModel::modelReset, &window, [&] { QCOMPARE(--reset_depth, 0); });
+		QSignalSpy reset(model, &QAbstractItemModel::modelReset);
+
+		QTest::keyClick(view, Qt::Key_F5);
+
+		QCOMPARE(global->incremental_search_text, query);
+		const int synchronous_resets = reset.count();
+		QTRY_VERIFY(reset.count() > synchronous_resets);
+		QCOMPARE(model->unfilteredCount(), 4);
+		QCOMPARE(model->rowCount(), zero_matches ? 0 : query.isEmpty() ? 4 : 3);
+		QVERIFY(hasStatus(window, query.isEmpty() ? "4 items" : zero_matches ? "0/4 items" : "3/4 items"));
+		if (!zero_matches) {
+			QCOMPARE(view->currentIndex().data(PathRole).toString(), files.filePath("beta2.txt"));
+			QStringList selected;
+			for (auto const &index : view->selectionModel()->selectedRows()) selected.push_back(index.data(PathRole).toString());
+			selected.sort();
+			QCOMPARE(selected, (QStringList{files.filePath("beta1.txt"), files.filePath("beta2.txt")}));
+		}
+		QTest::keyClick(view, Qt::Key_Escape);
+		QVERIFY(global->incremental_search_text.isEmpty());
+		QCOMPARE(model->rowCount(), 4);
+		QVERIFY(hasStatus(window, "4 items"));
+	}
+
+	void pendingRefreshUsesLatestSearch_data()
+	{
+		QTest::addColumn<bool>("thumbnail");
+		QTest::addColumn<int>("action");
+		for (bool thumbnail : {false, true}) {
+			const QString prefix = thumbnail ? "thumbnails " : "details ";
+			QTest::newRow(qPrintable(prefix + "change query")) << thumbnail << 0;
+			QTest::newRow(qPrintable(prefix + "clear query")) << thumbnail << 1;
+			QTest::newRow(qPrintable(prefix + "navigate away")) << thumbnail << 2;
+		}
+	}
+
+	void pendingRefreshUsesLatestSearch()
+	{
+		QFETCH(bool, thumbnail);
+		QFETCH(int, action);
+		QTemporaryDir files(QDir::currentPath() + "/treewalker-p108-pending-XXXXXX");
+		QVERIFY(files.isValid());
+		QVERIFY(createFile(files.filePath("alpha.txt")));
+		QVERIFY(createFile(files.filePath("beta.txt")));
+		QVERIFY(QDir(files.path()).mkdir("other"));
+		QVERIFY(createFile(files.filePath("other/other.txt")));
+		MainWindow window;
+		QVERIFY(prepareWindow(window));
+		QVERIFY(window.makeTreeCompletely());
+		window.openDir(ItemIdList(files.path()));
+		auto *model = window.fileitemmodel();
+		QAbstractItemModelTester tester(model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+		QTRY_COMPARE(model->rowCount(), 3);
+		window.setViewMode(thumbnail ? MainWindow::Thumbnail : MainWindow::List);
+		window.show();
+		window.activateWindow();
+		window.setFocusItemsView();
+		QCoreApplication::processEvents();
+		QAbstractItemView *view = thumbnail ? static_cast<QAbstractItemView *>(window.findChild<ThumbnailView *>("thumbnailView"))
+			: window.findChild<FileTableView *>("tableView");
+		QVERIFY(view);
+		QTest::keyClicks(view, "alpha");
+		QTest::keyClick(view, Qt::Key_F5);
+		auto *tree = window.findChild<FolderTreeView *>("treeView");
+		QVERIFY(tree && tree->currentItem());
+		const auto result = folderResult(tree->currentItem());
+		// Deliver the saved directory result only after the intervening input.
+		QMetaObject::invokeMethod(&window, [&window, result] { window.onRefreshFileListDone(result); }, Qt::QueuedConnection);
+		QTest::keyClick(view, Qt::Key_Escape);
+		if (action == 0) QTest::keyClicks(view, "beta");
+		if (action == 2) window.openDir(ItemIdList(files.filePath("other")));
+		QCoreApplication::sendPostedEvents(&window, QEvent::MetaCall);
+		QCOMPARE(global->incremental_search_text, action == 0 ? QString("beta") : QString());
+		if (action == 2) {
+			QTRY_COMPARE(model->rowCount(), 1);
+			QCOMPARE(model->index(0, 0).data(PathRole).toString(), files.filePath("other/other.txt"));
+		} else {
+			QCOMPARE(model->unfilteredCount(), 3);
+			QCOMPARE(model->rowCount(), action == 0 ? 1 : 3);
+			QVERIFY(hasStatus(window, action == 0 ? "1/3 items" : "3 items"));
+		}
 	}
 
 #ifdef Q_OS_WIN

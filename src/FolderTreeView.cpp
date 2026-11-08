@@ -266,12 +266,12 @@ public:
 	}
 };
 
-void FolderTreeItem::addChild(FolderTreeItem *child, int row)
+bool FolderTreeItem::addChild(FolderTreeItem *child, int row)
 {
-	if (model_ && model_->isFiltered()) return;
-	if (!child || child == this || child->parent_ || child->model_) return;
+	if (model_ && model_->isFiltered()) return false;
+	if (!child || child == this || child->parent_ || child->model_) return false;
 	for (FolderTreeItem *ancestor = this; ancestor; ancestor = ancestor->parent_) {
-		if (ancestor == child) return;
+		if (ancestor == child) return false;
 	}
 
 	if (row < 0 || row > children_.size()) {
@@ -294,6 +294,7 @@ void FolderTreeItem::addChild(FolderTreeItem *child, int row)
 
 		model_->endInsertRows();
 	}
+	return true;
 }
 
 FolderTreeItem *FolderTreeItem::takeChild(int row)
@@ -312,6 +313,17 @@ FolderTreeItem *FolderTreeItem::takeChild(int row)
 		return child;
 	}
 	return {};
+}
+
+bool FolderTreeItem::clearChildren()
+{
+	while (childCount() > 0) {
+		auto *child = takeChild(childCount() - 1);
+		if (!child) return false;
+		child->clearChildren();
+		delete child;
+	}
+	return true;
 }
 
 QString FolderTreeItem::text() const
@@ -509,6 +521,17 @@ void FolderTreeView::setExpanded(FolderTreeItem *item, bool f)
 	
 	QModelIndex index = indexFromItem(item);
 	setExpanded(index, f);
+}
+
+std::set<ItemIdList> FolderTreeView::expandedItemIds() const
+{
+	std::set<ItemIdList> ids;
+	for (auto *item : m->model.item_set_) {
+		if (!item->iidl().empty() && isExpanded(item)) {
+			ids.insert(item->iidl());
+		}
+	}
+	return ids;
 }
 
 void FolderTreeView::_set_filter(QString const &filter_text)

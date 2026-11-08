@@ -131,6 +131,7 @@ private slots:
 private:
 	void updateFileView();
 	void updateViews();
+	void restoreReloadSelection();
 private:
 	Ui::MainWindow *ui;
 	QString typeText(const FileInfo2 &info);

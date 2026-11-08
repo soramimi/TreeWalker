@@ -57,6 +57,8 @@ private slots:
 		auto *last = item("last");
 		root->addChild(first);
 		root->addChild(last);
+		QVERIFY(!last->addChild(first));
+		QCOMPARE(first->parent(), root);
 		QPersistentModelIndex last_index = tree.indexFromItem(last);
 		QCOMPARE(last_index.row(), 1);
 		QCOMPARE(model->parent(last_index), tree.indexFromItem(root));
@@ -176,9 +178,24 @@ private slots:
 			QVERIFY(!model->hasChildren(index));
 			QVERIFY(!model->index(0, 0, index).isValid());
 		}
+		// Filtered indices are flat; structural changes must fail without
+		// transferring ownership or spinning on children that cannot be taken.
+		auto rejected = std::make_unique<FolderTreeItem>();
+		QVERIFY(!root->addChild(rejected.get()));
+		QVERIFY(rejected->parent() == nullptr);
+		QVERIFY(!root->takeChild(0));
+		QVERIFY(!root->clearChildren());
+		QCOMPARE(root->childCount(), 2);
 		tree.setFilter({});
 		QCOMPARE(model->rowCount(), 1);
 		QCOMPARE(model->rowCount(tree.indexFromItem(root)), 2);
+		QVERIFY(root->addChild(rejected.get()));
+		rejected.release();
+		QPersistentModelIndex old_child = tree.indexFromItem(root->child(0));
+		QVERIFY(root->clearChildren());
+		QVERIFY(!old_child.isValid());
+		QCOMPARE(root->childCount(), 0);
+		QVERIFY(root->clearChildren());
 		tree.clear();
 		QCOMPARE(model->rowCount(), 0);
 		QVERIFY(!model->hasChildren());
@@ -225,6 +242,41 @@ private slots:
 		set_filter({});
 		QCOMPARE(about_reset.count(), 2);
 		QCOMPARE(reset.count(), 2);
+		QCOMPARE(model->rowCount(), 2);
+	}
+
+	void replacingItemsKeepsUnfilteredRows_data()
+	{
+		QTest::addColumn<QString>("query");
+		QTest::addColumn<int>("matches");
+		QTest::newRow("all") << QString() << 2;
+		QTest::newRow("one") << QString("alpha") << 1;
+		QTest::newRow("none") << QString("unmatched-query") << 0;
+	}
+
+	void replacingItemsKeepsUnfilteredRows()
+	{
+		QFETCH(QString, query);
+		QFETCH(int, matches);
+		MainWindow window;
+		QScopedValueRollback<MainWindow *> context(global->mainwindow, &window);
+		auto *model = window.fileitemmodel();
+		QAbstractItemModelTester tester(model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+		QSignalSpy about_reset(model, &QAbstractItemModel::modelAboutToBeReset);
+		QSignalSpy reset(model, &QAbstractItemModel::modelReset);
+		std::vector<FileItemModel::Item> items;
+		for (QString const &name : {QString("alpha"), QString("beta")}) {
+			FileItemModel::Item file;
+			file.name = file.info.name = name;
+			file.info.isdir = true;
+			items.push_back(std::move(file));
+		}
+		model->replaceItems(Kind::Directory, std::move(items), query);
+		QCOMPARE(about_reset.count(), 1);
+		QCOMPARE(reset.count(), 1);
+		QCOMPARE(model->rowCount(), matches);
+		QCOMPARE(model->unfilteredCount(), 2);
+		model->setFilterText({});
 		QCOMPARE(model->rowCount(), 2);
 	}
 };

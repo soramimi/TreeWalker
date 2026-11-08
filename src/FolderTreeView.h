@@ -5,6 +5,7 @@
 
 #include <QTreeView>
 #include <memory>
+#include <set>
 
 #include <subprojects/IncrementalSearchPlugin/src/IncrementalSearch.h>
 
@@ -50,8 +51,9 @@ public:
 	FolderTreeItem *parent();
 	FolderTreeItem *child(int i) const;
 
-	void addChild(FolderTreeItem *child, int row = -1);
+	bool addChild(FolderTreeItem *child, int row = -1);
 	FolderTreeItem *takeChild(int row);
+	bool clearChildren();
 
 	QString text() const;
 	void setText(int column, QString const &text);
@@ -99,6 +101,7 @@ public:
 	using QTreeView::setExpanded;
 	bool isExpanded(FolderTreeItem *item) const;
 	void setExpanded(FolderTreeItem *item, bool f);
+	std::set<ItemIdList> expandedItemIds() const;
 
 	void setFilter(QString const &filter_text);
 

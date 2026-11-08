@@ -57,6 +57,7 @@ public:
 	FileItemModel::Item const *item(int row) const;
 	void clearItems();
 	void addItem(FileItemModel::Item &&item);
+	void replaceItems(Kind kind, std::vector<Item> items, QString const &filter_text);
 public:
 	mutable std::optional<int> filtered_items_;
 	bool isFiltered() const;
