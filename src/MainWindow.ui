@@ -185,31 +185,10 @@
         <number>0</number>
        </property>
        <item>
-        <layout class="QHBoxLayout" name="horizontalLayout_3">
+        <layout class="QHBoxLayout" name="horizontalLayout_bookmark_bar">
          <property name="spacing">
           <number>1</number>
          </property>
-         <item>
-          <widget class="BookmarkToolButton" name="toolButton_3">
-           <property name="text">
-            <string>aaa</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="BookmarkToolButton" name="toolButton_4">
-           <property name="text">
-            <string>bbb</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="BookmarkToolButton" name="toolButton_5">
-           <property name="text">
-            <string>ccc</string>
-           </property>
-          </widget>
-         </item>
          <item>
           <spacer name="horizontalSpacer">
            <property name="orientation">
@@ -388,9 +367,15 @@
     <addaction name="separator"/>
     <addaction name="action_view_hide_item"/>
    </widget>
+   <widget class="QMenu" name="menu_bookmarks">
+    <property name="title">
+     <string>&amp;Bookmarks</string>
+    </property>
+   </widget>
    <addaction name="menu_File"/>
    <addaction name="menu_Edit"/>
    <addaction name="menu_View"/>
+   <addaction name="menu_bookmarks"/>
    <addaction name="menuExperiment"/>
   </widget>
   <widget class="QStatusBar" name="statusBar"/>
@@ -431,11 +416,6 @@
  </widget>
  <layoutdefault spacing="6" margin="11"/>
  <customwidgets>
-  <customwidget>
-   <class>BookmarkToolButton</class>
-   <extends>QToolButton</extends>
-   <header>BookmarkToolButton.h</header>
-  </customwidget>
   <customwidget>
    <class>FileTableView</class>
    <extends>QTableView</extends>

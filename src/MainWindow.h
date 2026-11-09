@@ -50,6 +50,12 @@ struct LocationData {
 };
 Q_DECLARE_METATYPE(LocationData)
 
+struct BookmarkProperty {
+	QString name;
+	QString location;
+};
+Q_DECLARE_METATYPE(BookmarkProperty)
+
 // Backend captures own their resources and may outlive the window.
 using FetchLocationFunction = std::function<LocationData(LocationData, std::function<bool()> const &)>;
 
@@ -164,6 +170,7 @@ private:
 	bool hiddenFilesVisible() const;
 	void fetchBookmarks(QString const &sourcePath = {});
 	void makeBookmarkMap(const QString &path, QJsonValue v, int depth, FolderTreeItem *parent);
+
 	void openDir(const ItemIdList &iidl);
 	void openTableItem(const QModelIndex &index);
 	void refreshFileList2(const LocationData &loc, bool force);
@@ -210,6 +217,12 @@ private slots:
 	void onNetworkFilesChanged();
 	void updateNetworkTree();
 #endif
+public:
+	void openBookmark(BookmarkProperty prop)
+	{
+		openDir(prop.location);
+	}
+	
 };
 
 class VirtualFileSystem {

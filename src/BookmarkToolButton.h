@@ -6,12 +6,23 @@
 
 
 class BookmarkToolButton : public QToolButton {
+private:
+	QVariant property_;
 public:
 	BookmarkToolButton(QWidget *parent = 0);
 
-	// QWidget interface
+	QVariant property() const
+	{
+		return property_;
+	}
+	void setProperty(const QVariant &prop)
+	{
+		property_ = prop;
+	}
 protected:
 	void paintEvent(QPaintEvent *event);
+private slots:
+	void clicked();
 };
 
 #endif // BOOKMARKTOOLBUTTON_H

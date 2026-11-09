@@ -190,6 +190,7 @@ int main(int argc, char *argv[])
 
 	qRegisterMetaType<LocationData>("LocationData");
 	qRegisterMetaType<ItemIdList>("ItemIdList");
+	qRegisterMetaType<BookmarkProperty>("BookmarkProperty");
 
 
 	MainWindow w;

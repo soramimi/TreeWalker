@@ -4,10 +4,13 @@
 #include <QPalette>
 #include <QStyle>
 #include <QPaintEvent>
+#include "ApplicationGlobal.h"
+#include "MainWindow.h"
 
 BookmarkToolButton::BookmarkToolButton(QWidget *parent)
 	: QToolButton(parent)
 {
+	connect(this, &QToolButton::clicked, this, &BookmarkToolButton::clicked);
 }
 
 void BookmarkToolButton::paintEvent(QPaintEvent *event)
@@ -20,4 +23,9 @@ void BookmarkToolButton::paintEvent(QPaintEvent *event)
 	int flags = Qt::AlignVCenter;
 	int x = 4;
 	style()->drawItemText(&pr, rect().adjusted(x, 0, 0, 0), flags, palette(), true, text(), QPalette::ButtonText);
+}
+
+void BookmarkToolButton::clicked()
+{
+	global->mainwindow->openBookmark(property().value<BookmarkProperty>());
 }

@@ -27,6 +27,7 @@
 #include "common/str.h"
 #include "common/misc.h"
 #include "common/q/helper.h""
+#include "BookmarkToolButton.h"
 #include "IncrementalSearchHelper.h"
 #include <cstring>
 #include <unordered_set>
@@ -234,6 +235,35 @@ MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, Thumbnail
 #else
 	m->fs_factory = FileSystemProviderPtr(new BasicFileSystemProvider(QString("/").toUtf8()));
 #endif
+
+	auto AddBookmark = [&](BookmarkProperty const &prop){
+		QVariant var = QVariant::fromValue(prop);
+		// add bookmark to menu
+		QAction *a = new QAction(prop.name, this);
+		a->setData(var);
+		connect(a, &QAction::triggered, this, [this, var](){
+			BookmarkProperty prop = var.value<BookmarkProperty>();
+			openBookmark(prop);
+		});
+		ui->menu_bookmarks->addAction(a);
+		// add bookmark to toolbar
+		int i = ui->horizontalLayout_bookmark_bar->count();
+		while (i > 0) {
+			QLayoutItem *item = ui->horizontalLayout_bookmark_bar->itemAt(i - 1);
+			if (!item->spacerItem()) break;
+			i--;
+		}
+		BookmarkToolButton *b = new BookmarkToolButton(ui->frame_bookmark_bar);
+		b->setText(prop.name);
+		b->setProperty(var);
+		ui->horizontalLayout_bookmark_bar->insertWidget(i, b);
+	};
+	
+	BookmarkProperty prop;
+	prop.name = "home";
+	prop.location = QString("/home");
+
+	AddBookmark(prop);
 }
 
 MainWindow::~MainWindow()
@@ -1300,6 +1330,10 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 	if (QApplication::activeModalWidget()) {
 		// nop:
 	} else {
+		const bool alt = (event->modifiers() & Qt::AltModifier);
+		const bool ctrl = (event->modifiers() & Qt::ControlModifier);
+		const bool shift = (event->modifiers() & Qt::ShiftModifier);
+
 		switch (key) {
 		case Qt::Key_Tab:
 		case Qt::Key_Backtab:
@@ -1338,7 +1372,7 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 			}
 			return;
 		case Qt::Key_B:
-			if (event->modifiers() & Qt::AltModifier) {
+			if (ctrl && shift) {
 				toggleBookbarkBarVisible();
 				return;
 			}
@@ -1905,6 +1939,8 @@ void MainWindow::openDir(ItemIdList const &iidl)
 	// Also refresh when navigating to the already selected directory.
 	on_treeView_currentItemChanged(item, nullptr);
 }
+
+
 
 bool MainWindow::isAddressBarVisible() const
 {
