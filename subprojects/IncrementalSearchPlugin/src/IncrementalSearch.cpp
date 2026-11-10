@@ -54,7 +54,6 @@ static inline char const *stristr(const char *s1, const char *s2)
 
 struct IncrementalSearch::Private {
 	MyMecab mecab;
-	quint64 reading_generation_count = 0;
 #ifdef USE_SUDACHI
 	MySudachi sudachi;
 #endif
@@ -90,7 +89,7 @@ bool IncrementalSearch::open()
 			}
 			auto parts = mecab()->parse("吾輩は猫である");
 			if (parts.size() != 5) {
-				throw QString("Failed to parse sentence with IncrementalSearchPlugin. Expected 5 parts, got " + parts.size());
+				throw QString("Failed to parse sentence with IncrementalSearchPlugin. Expected 5 parts, got " + QString::number(parts.size()));
 			} else {
 				std::vector<std::string> expected = {"ワガハイ", "ハ", "ネコ", "デ", "アル"};
 				for (size_t i = 0; i < parts.size(); i++) {
@@ -152,7 +151,6 @@ IncrementalSearch::~IncrementalSearch()
 
 xstring IncrementalSearch::to_kana(const xstring &text, std::vector<incrementalsearch::Element> *out) const
 {
-	++m->reading_generation_count;
 	xstring kana;
 	std::vector<incrementalsearch::Part> parts = mecab()->parse(text.view());
 	size_t pos = 0;
@@ -189,31 +187,7 @@ IncrementalSearchFilter IncrementalSearch::makeFilter(std::string const &filtert
 
 incrementalsearch::Result IncrementalSearch::match(xstring const &text, const IncrementalSearchFilter &filter) const
 {
-	if (filter.original_text.empty() || filter.katakana_text.empty()) {
-		incrementalsearch::PreparedText prepared;
-		prepared.source = text;
-		return match(prepared, filter);
-	}
-	return match(prepare(text), filter);
-}
-
-incrementalsearch::PreparedText IncrementalSearch::prepare(xstring const &text) const
-{
-	incrementalsearch::PreparedText prepared;
-	prepared.source = text;
-	if (!text.empty()) prepared.kana = to_kana(text, &prepared.elements);
-	return prepared;
-}
-
-quint64 IncrementalSearch::readingGenerationCount() const
-{
-	return m->reading_generation_count;
-}
-
-incrementalsearch::Result IncrementalSearch::match(incrementalsearch::PreparedText const &prepared, const IncrementalSearchFilter &filter) const
-{
 	using namespace incrementalsearch;
-	auto const &text = prepared.source;
 	Result ret;
 	if (filter.original_text.empty()) {
 		// フィルタ文字列なしは全体一致とみなす
@@ -242,30 +216,21 @@ incrementalsearch::Result IncrementalSearch::match(incrementalsearch::PreparedTe
 		}
 		// 文字列をカタカナに変換してマッチさせる
 		if (!filter.katakana_text.empty()) {
-			auto const &parts = prepared.elements;
-			auto reading = to_std_string_view(prepared.kana);
-			auto needle = to_std_string_view(filter.katakana_text);
-			size_t first = 0;
-			size_t last = 0;
-			size_t search_pos = 0;
-			while (true) {
-				size_t match_pos = reading.find(needle, search_pos);
-				if (match_pos == std::string_view::npos) break;
-				size_t match_end = match_pos + needle.size();
-				// 一致した読みが触れる形態素を、元の文字列の範囲へ戻す。
-				while (first < parts.size() && parts[first].kana.end <= match_pos) ++first;
-				last = std::max(last, first);
-				while (last < parts.size() && parts[last].kana.pos < match_end) ++last;
-				size_t pos = parts[first].source.pos;
-				size_t end = parts[last - 1].source.end;
+			std::vector<Element> parts;
+			xstring kana = to_kana(text, &parts);
+			(void)kana;
+			for (size_t i = 0; i < parts.size(); i++) {
+				bool match = to_std_string_view(parts[i].kana.text).find(to_std_string_view(filter.katakana_text)) != xstring::npos;
+				if (!match) continue;
+				// マッチした部分を追加
+				size_t pos = parts[i].source.pos;
+				size_t end = parts[i].source.end;
 				Element part;
 				part.match = true;
 				part.source.pos = pos;
 				part.source.end = end;
 				part.source.text = text.substr(pos, end - pos);
 				matched_list.push_back(part);
-				// 重なり合う一致も検索し、ハイライト範囲を取りこぼさない。
-				search_pos = match_pos + 1;
 			}
 		}
 		// マッチした部分を位置順にソート
@@ -296,7 +261,7 @@ incrementalsearch::Result IncrementalSearch::match(incrementalsearch::PreparedTe
 			} else { // マッチした部分を追加
 				ret.parts.push_back(part);
 			}
-			pos = std::max(pos, part.end);
+			pos = part.end;
 		}
 		// 最後のフィルタ以降の部分
 		if (pos < text.size()) {

@@ -1,4 +1,5 @@
 #include "FileType.h"
+#include "FileTypeWrapper.h"
 
 struct FileType::Private {
 	FileTypeWrapper detector;
@@ -16,15 +17,22 @@ FileType::~FileType()
 
 bool FileType::open()
 {
-	return true;
+	return m->detector.open();
 }
 
-FileTypeWrapper::Result FileType::detect(const char *data, size_t size, int filemode) const
+FileType::Result::Result(InternalFileTypeResult const &result)
 {
-	return m->detector.detect(data, size, filemode);
+	isdir = result.isdir;
+	mimetype = toQString(result.mimetype);
+	charset = toQString(result.charset);
 }
 
-FileTypeWrapper::Result FileType::detect(const char *filepath) const
+FileType::Result FileType::detect(const char *data, size_t size, int filemode) const
+{
+	return FileType::Result(m->detector.detect(data, size, filemode));
+}
+
+FileType::Result FileType::detect(const char *filepath) const
 {
 	return m->detector.detect(filepath);
 }

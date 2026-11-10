@@ -120,7 +120,7 @@ void FileItemModel::replaceItems(Kind kind, std::vector<Item> items, QString con
 void FileItemModel::prepareItem(Item *item, Kind kind)
 {
 	for (int column = 0; column < (kind == Kind::ChromeBookmark ? 2 : 4); ++column) {
-		item->search_text[column] = global->incremental_search->prepare(fromQString(item->displayText(kind, column)));
+		item->search_text[column] = fromQString(item->displayText(kind, column));
 	}
 }
 

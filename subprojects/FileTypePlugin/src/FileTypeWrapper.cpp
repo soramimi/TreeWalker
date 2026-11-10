@@ -1,6 +1,7 @@
 #include "FileTypeWrapper.h"
-#include "magic.h"
+#include "lib/magic.h"
 #include <algorithm>
+#include <cerrno>
 #include <cstring>
 #include <fcntl.h>
 #include <memory>
@@ -14,6 +15,9 @@
 // #define NOMINMAX
 #include <io.h>
 #include <fcntl.h>
+#ifndef S_ISDIR
+#define S_ISDIR(mode) (((mode) & _S_IFMT) == _S_IFDIR)
+#endif
 #else
 #include <sys/types.h>
 #include <unistd.h>
@@ -262,28 +266,32 @@ const char *_fd_or_buf(magic_set *ms, int fd, unsigned char *buf, ssize_t nbytes
 	return file_getbuffer(ms);
 }
 
-FileTypeWrapper::Result parse_mime(std::string const &mime)
+InternalFileTypeResult parse_mime(std::string const &mime)
 {
 	if (mime.empty()) return {};
 
-	FileTypeWrapper::Result ret;
+	std::string ret_mimetype;
+	std::string ret_charset;
 
 	char const *p = mime.c_str();
 	char const *q = strchr(p, ';');
 	if (q) {
-		ret.mimetype = std::string(p, q - p);
+		ret_mimetype = std::string(p, q - p);
 		q++;
 		while (*q == ' ') q++;
 		if (strncmp(q, "charset=", 8) == 0) {
 			q += 8;
 			char const *r = strchr(q, ';');
 			if (r) {
-				ret.charset = std::string(q, r - q);
+				ret_charset = std::string(q, r - q);
 			} else {
-				ret.charset = q;
+				ret_charset = q;
 			}
 		}
 	}
+	InternalFileTypeResult ret;
+	ret.mimetype = ret_mimetype;
+	ret.charset = ret_charset;
 	return ret;
 }
 
@@ -353,14 +361,23 @@ bool FileTypeWrapper::open()
 	MagicReader reader((char const *)magic_mgc_zst, magic_mgc_zst_len);
 	MagicWriter writer(&mgcdata_);
 	ZS zs;
-	zs.decompress([&reader](char *ptr, int len) { return reader.read(ptr, len); },
-				  [&writer](char const *ptr, int len) { return writer.write(ptr, len); });
+	if (!zs.decompress([&reader](char *ptr, int len) { return reader.read(ptr, len); },
+				  [&writer](char const *ptr, int len) { return writer.write(ptr, len); })) {
+		fprintf(stderr, "Failed to decompress magic database: %s\n", zs.error.c_str());
+		close();
+		return false;
+	}
 
 	void *bufs[1];
 	size_t sizes[1];
 	bufs[0] = mgcdata_.data();
 	sizes[0] = mgcdata_.size();
-	return 0 == magic_load_buffers((magic_set *)magic_set_, bufs, sizes, 1);
+	if (magic_load_buffers((magic_set *)magic_set_, bufs, sizes, 1) != 0) {
+		fprintf(stderr, "Failed to load magic database: %s\n", magic_error((magic_set *)magic_set_));
+		close();
+		return false;
+	}
+	return true;
 }
 
 
@@ -373,6 +390,7 @@ void FileTypeWrapper::close()
 		magic_close((magic_set *)magic_set_);
 		magic_set_ = nullptr;
 	}
+	mgcdata_.clear();
 }
 
 /**
@@ -380,7 +398,7 @@ void FileTypeWrapper::close()
  * @param fd The detect descriptor
  * @return The result
  */
-FileTypeWrapper::Result FileTypeWrapper::detect(int fd) const
+InternalFileTypeResult FileTypeWrapper::detect(int fd) const
 {
 	if (!magic_set_) {
 		fprintf(stderr, "magic_set is null\n");
@@ -392,15 +410,30 @@ FileTypeWrapper::Result FileTypeWrapper::detect(int fd) const
 	if (fd != -1) {
 		struct stat st;
 		if (fstat(fd, &st) == 0) {
-			ssize_t nbytes = std::min(4096, (int)st.st_size);
+			if (S_ISDIR(st.st_mode)) {
+				InternalFileTypeResult r;
+				r.isdir = true;
+				// r.mimetype = "x-filesystem/x-directory";
+				return r;
+			}
+			if (st.st_size < 0) return {};
+			size_t nbytes = static_cast<size_t>(std::min<decltype(st.st_size)>(4096, st.st_size));
 			std::vector<unsigned char> buf(nbytes);
-			nbytes = read(fd, buf.data(), buf.size());
-			lseek(fd, 0, SEEK_SET);
-			{
-				std::lock_guard<std::mutex> lock(mutex_);
-				char const *p = _fd_or_buf((magic_set *)magic_set_, fd, buf.data(), nbytes, &st, false);
-				if (p) {
-					mime = p;
+			size_t bytes_read = 0;
+			while (bytes_read < nbytes) {
+				auto count = read(fd, buf.data() + bytes_read, nbytes - bytes_read);
+				if (count < 0 && errno == EINTR) continue;
+				if (count <= 0) break;
+				bytes_read += static_cast<size_t>(count);
+			}
+			if (bytes_read == nbytes) {
+				lseek(fd, 0, SEEK_SET);
+				{
+					std::lock_guard<std::mutex> lock(mutex_);
+					char const *p = _fd_or_buf((magic_set *)magic_set_, fd, buf.data(), nbytes, &st, false);
+					if (p) {
+						mime = p;
+					}
 				}
 			}
 		}
@@ -414,7 +447,7 @@ FileTypeWrapper::Result FileTypeWrapper::detect(int fd) const
  * @param filepath The path to the detect
  * @return The result
  */
-FileTypeWrapper::Result FileTypeWrapper::detect(const char *filepath) const
+InternalFileTypeResult FileTypeWrapper::detect(const char *filepath) const
 {
 	if (!magic_set_) {
 		fprintf(stderr, "magic_set is null\n");
@@ -423,12 +456,15 @@ FileTypeWrapper::Result FileTypeWrapper::detect(const char *filepath) const
 
 	if (!filepath) return {};
 
-	Result ret;
+	InternalFileTypeResult ret;
 
 	int fd = ::open(filepath, O_RDONLY | O_BINARY | O_NONBLOCK | O_CLOEXEC);
 	if (fd != -1) {
+		struct CloseFd {
+			int fd;
+			~CloseFd() { ::close(fd); }
+		} guard{fd};
 		ret = detect(fd);
-		::close(fd);
 	}
 
 	return ret;
@@ -441,7 +477,7 @@ FileTypeWrapper::Result FileTypeWrapper::detect(const char *filepath) const
  * @param st_mode The mode of the detect
  * @return The result
  */
-FileTypeWrapper::Result FileTypeWrapper::detect(const char *data, size_t size, int st_mode) const
+InternalFileTypeResult FileTypeWrapper::detect(const char *data, size_t size, int st_mode) const
 {
 	if (!magic_set_) {
 		fprintf(stderr, "magic_set is null\n");
@@ -455,7 +491,8 @@ FileTypeWrapper::Result FileTypeWrapper::detect(const char *data, size_t size, i
 	{
 		std::lock_guard<std::mutex> lock(mutex_);
 		char const *p = _fd_or_buf((magic_set *)magic_set_, -1, (unsigned char *)data, size, &st, false);
-		return p ? parse_mime(p) : Result();
+		if (p) return parse_mime(p);
 	}
+	return {};
 }
 

@@ -22,17 +22,10 @@ INCLUDEPATH += file
 unix:LIBS += -ldl
 win32:LIBS += -lole32 -loleaut32
 
-# zlib
+# zlib / zstd
 
-win32 {
-	# LIBS += -lzlib
-	LIBS += -lzstd
-}
-
-!win32 {
-	# LIBS += -lz
-	LIBS += -lzstd
-}
+LIBS += -lz
+LIBS += -lzstd
 
 #
 
@@ -44,6 +37,7 @@ win32:CONFIG(debug, debug|release):LIBS += $$PWD/lib/filed.lib $$PWD/lib/oniguru
 !win32:CONFIG(debug, debug|release):LIBS += $$PWD/lib/libfiled.a $$PWD/lib/libonigurumad.a
 
 HEADERS += \
+	../xstring.h \
 	src/FileType.h \
 	src/FileTypeInterface.h \
 	src/FileTypePlugin.h
@@ -58,6 +52,7 @@ DISTFILES += \
 
 
 SOURCES += \
+	lib/magic_mgc_gz.c \
 	src/AbstractSimpleIO.cpp \
 	src/FileTypeWrapper.cpp \
 	src/zs.cpp
@@ -67,5 +62,6 @@ HEADERS += \
 	src/FileTypeWrapper.h \
 	src/zs.h
 
-SOURCES += gen/magic_mgc_zst.c
+# SOURCES += lib/magic_mgc_gz.c
+SOURCES += lib/magic_mgc_zst.c
 

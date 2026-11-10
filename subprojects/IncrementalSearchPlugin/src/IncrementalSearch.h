@@ -18,12 +18,6 @@ struct Element {
 	Fragment kana;
 };
 
-struct PreparedText {
-	xstring source;
-	xstring kana;
-	std::vector<Element> elements;
-};
-
 
 struct Result {
 	struct Part : public Element::Fragment {
@@ -78,9 +72,6 @@ public:
 	virtual std::string convertRomajiToKatakana(std::string const &a);
 	virtual IncrementalSearchFilter makeFilter(const std::string &filtertext);
 	virtual incrementalsearch::Result match(const xstring &text, const IncrementalSearchFilter &filter) const;
-	virtual incrementalsearch::PreparedText prepare(const xstring &text) const;
-	virtual incrementalsearch::Result match(const incrementalsearch::PreparedText &text, const IncrementalSearchFilter &filter) const;
-	virtual quint64 readingGenerationCount() const;
 };
 
 #endif // INCREMENTALSEARCH_H

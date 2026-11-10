@@ -5,7 +5,7 @@
 #include <QPluginLoader>
 #include <memory>
 
-// #include <dlfcn.h>
+#include <dlfcn.h>
 
 int main(int argc, char **argv)
 {

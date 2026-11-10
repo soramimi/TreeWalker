@@ -2,7 +2,8 @@
 #define FILETYPE_H
 
 #include <QObject>
-#include "FileTypeWrapper.h"
+
+class InternalFileTypeResult;
 
 class FileType : public QObject {
 	Q_OBJECT
@@ -13,7 +14,14 @@ public:
 	FileType();
 	~FileType();
 	
-	using Result = FileTypeWrapper::Result;
+	class Result {
+	public:
+		bool isdir = false;
+		QString mimetype;
+		QString charset;
+		Result() = default;
+		Result(const InternalFileTypeResult &result);
+	};
 	
 	virtual bool open();
 	virtual Result detect(char const *filepath) const;

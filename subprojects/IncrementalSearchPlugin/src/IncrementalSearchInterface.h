@@ -11,6 +11,6 @@ public:
 	virtual IncrementalSearch *create() = 0;
 };
 
-Q_DECLARE_INTERFACE(IncrementalSearchInterface, "soramimi.jp.IncrementalSearchPlugin/2.0")
+Q_DECLARE_INTERFACE(IncrementalSearchInterface, "soramimi.jp.IncrementalSearchPlugin/1.0")
 
 #endif // INCREMENTALSEARCHINTERFACE_H

@@ -31,7 +31,7 @@ enum class Kind {
 class FileItemModel : public QAbstractItemModel {
 	Q_OBJECT
 public:
-	using MatchFunction = std::function<incrementalsearch::Result(incrementalsearch::PreparedText const &, IncrementalSearchFilter const &)>;
+	using MatchFunction = std::function<incrementalsearch::Result(xstring const &, IncrementalSearchFilter const &)>;
 	struct Item {
 		FileInfo2 info;
 		QString name;
@@ -41,7 +41,7 @@ public:
 		QString type;
 		QDateTime modified;
 		bool hidden = false;
-		std::array<incrementalsearch::PreparedText, 4> search_text;
+		std::array<xstring, 4> search_text;
 		QString displayText(Kind kind, int column) const;
 		QIcon icon() const
 		{
