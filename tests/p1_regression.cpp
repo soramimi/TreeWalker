@@ -513,6 +513,11 @@ private slots:
 
 		window.show(); window.activateWindow(); view->setFocus();
 		QCoreApplication::processEvents(); QVERIFY(view->hasFocus());
+		QTimer confirmation;
+		connect(&confirmation, &QTimer::timeout, [&] {
+			auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+			if (box && box->windowTitle() == "Open file") { confirmation.stop(); box->button(QMessageBox::Ok)->click(); }
+		}); confirmation.start(10);
 		if (enter) QTest::keyClick(view, Qt::Key_Return);
 		else {
 			QPoint position = view->visualRect(view->currentIndex()).center();
@@ -522,7 +527,7 @@ private slots:
 
 		QCOMPARE(opened_urls_.size(), 1);
 		QCOMPARE(opened_urls_.front().toLocalFile(), files.filePath("b.txt"));
-		QVERIFY(global->incremental_search_text.isEmpty());
+		QCOMPARE(global->incremental_search_text, QString("b"));
 	}
 
 	void refreshDuringTreeSearch()

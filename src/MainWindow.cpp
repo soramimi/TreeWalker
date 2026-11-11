@@ -90,9 +90,11 @@ public:
 };
 
 struct MainWindow::Private {
-	Private(FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load, FetchLocationFunction tree_fetcher)
-		: tree_fetcher(std::move(tree_fetcher)), fetcher(std::move(fetcher)), thumbnail_loader(std::move(thumbnail_load)) {}
+	Private(FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load, FetchLocationFunction tree_fetcher, std::function<bool(QUrl const &)> file_launcher)
+		: file_launcher(std::move(file_launcher)), tree_fetcher(std::move(tree_fetcher)), fetcher(std::move(fetcher)), thumbnail_loader(std::move(thumbnail_load)) {}
 	FileItemModel file_item_model;
+	std::function<bool(QUrl const &)> file_launcher;
+	bool opening_file = false;
 	filetransfer::Job *transfer_job = nullptr;
 	QSet<QString> transfer_tree_refresh;
 	FetchLocationFunction tree_fetcher;
@@ -210,9 +212,9 @@ void MainWindow::addPlaceholder(FolderTreeItem *item)
 	if (item->addChild(placeholder.get())) placeholder.release();
 }
 
-MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load, FetchLocationFunction tree_fetcher)
+MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load, FetchLocationFunction tree_fetcher, std::function<bool(QUrl const &)> file_launcher)
 	: QMainWindow(parent)
-	, m(new Private(std::move(fetcher), std::move(thumbnail_load), std::move(tree_fetcher)))
+	, m(new Private(std::move(fetcher), std::move(thumbnail_load), std::move(tree_fetcher), std::move(file_launcher)))
 	, ui(new Ui::MainWindow)
 {
 	ui->setupUi(this);
@@ -996,14 +998,19 @@ void MainWindow::clearAllFilters()
 
 void MainWindow::openTableItem(QModelIndex const &index)
 {
-	if (!index.isValid() || index.model() != fileitemmodel()) return;
+	if (m->opening_file || !index.isValid() || index.model() != fileitemmodel()) return;
 	// A model reset changes the meaning of the row, so copy its identity first.
 	QString path = index.data(PathRole).toString();
 	QString url = index.data(UrlRole).toString();
 	ItemIdList iidl = index.data(IidlRole).value<ItemIdList>();
 	Kind kind = static_cast<Kind>(index.data(KindRole).toInt());
 	bool bookmark_list = fileitemmodel()->kind_ == Kind::ChromeBookmark;
-	if (path.isEmpty() && url.isEmpty() && iidl.empty()) return;
+	if (kind == Kind::Placeholder || (path.isEmpty() && url.isEmpty() && iidl.empty())) return;
+	// Confirmation must not reset the filter or change the selected row.
+	if (!bookmark_list && !path.isEmpty() && QFileInfo(path).isFile()) {
+		openFileWithConfirmation(path);
+		return;
+	}
 	m->focus_widget = QWidget::focusWidget();
 
 	clearAllFilters();
@@ -1026,14 +1033,40 @@ void MainWindow::openTableItem(QModelIndex const &index)
 		openDir(path);
 		return;
 	}
-	if (fi.isFile()) {
-		QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+	if (!path.isEmpty() && kind == Kind::File) {
+		openFileWithConfirmation(path);
 		return;
 	}
 	if (url.startsWith("http://") || url.startsWith("https://")) {
 		QDesktopServices::openUrl(QUrl(url));
 		return;
 	}
+}
+
+void MainWindow::openFileWithConfirmation(QString const &path)
+{
+	if (m->opening_file) return;
+	const QFileInfo original(path);
+	if (!original.isAbsolute() || !original.isFile()) {
+		setStatusBarText(tr("Cannot open this file: it does not exist or is not a regular file."));
+		return;
+	}
+	const QString saved_path = original.absoluteFilePath();
+	QScopedValueRollback<bool> opening(m->opening_file, true);
+	QMessageBox confirmation(QMessageBox::Question, tr("Open file"),
+		tr("Open this file with its default application?\n\n%1\n%2").arg(original.fileName(), saved_path),
+		QMessageBox::Ok | QMessageBox::Cancel, this);
+	confirmation.setTextFormat(Qt::PlainText);
+	confirmation.setDefaultButton(QMessageBox::Cancel);
+	confirmation.setEscapeButton(QMessageBox::Cancel);
+	if (confirmation.exec() != QMessageBox::Ok) return;
+	if (!QFileInfo(saved_path).isFile()) {
+		setStatusBarText(tr("Cannot open this file: it no longer exists or is no longer a regular file."));
+		return;
+	}
+	const QUrl address = QUrl::fromLocalFile(saved_path);
+	const bool accepted = m->file_launcher ? m->file_launcher(address) : QDesktopServices::openUrl(address);
+	if (!accepted) setStatusBarText(tr("The request to open this file with its default application failed."));
 }
 
 void MainWindow::toggleTreeItemExpansion()
@@ -1450,10 +1483,12 @@ void MainWindow::keyPressEvent(QKeyEvent *event)
 				return;
 			}
 			if (focuswidget == ui->tableView) {
+				if (event->isAutoRepeat()) return;
 				openTableItem(ui->tableView->currentIndex());
 				return;
 			}
 			if (focuswidget == ui->thumbnailView) {
+				if (event->isAutoRepeat()) return;
 				openTableItem(ui->thumbnailView->currentIndex());
 				return;
 			}

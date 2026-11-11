@@ -3,6 +3,7 @@
 
 #include <QFileInfo>
 #include <QMainWindow>
+#include <QUrl>
 #include <functional>
 #include "AbstractFileSystemProvider.h"
 #include "FileItemModel.h"
@@ -71,7 +72,7 @@ private:
 	struct Private;
 	Private *m;
 public:
-	explicit MainWindow(QWidget *parent = 0, FetchLocationFunction fetcher = {}, ThumbnailLoader::LoadFunction thumbnail_load = {}, FetchLocationFunction tree_fetcher = {});
+	explicit MainWindow(QWidget *parent = 0, FetchLocationFunction fetcher = {}, ThumbnailLoader::LoadFunction thumbnail_load = {}, FetchLocationFunction tree_fetcher = {}, std::function<bool(QUrl const &)> file_launcher = {});
 	~MainWindow();
 	
 	enum ViewMode {
@@ -171,6 +172,7 @@ private:
 
 	void openDir(const ItemIdList &iidl, bool retry = false);
 	void openTableItem(const QModelIndex &index);
+	void openFileWithConfirmation(QString const &path);
 	void refreshFileList2(const LocationData &loc, bool force);
 	bool renamePath(QString const &path, QString const &name);
 	bool createFolder(QString const &name);
