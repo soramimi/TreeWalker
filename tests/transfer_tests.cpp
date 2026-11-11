@@ -12,6 +12,7 @@
 #include <QDropEvent>
 #include "FileItemModel.h"
 #include <QUrl>
+#include <QClipboard>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QFile>
@@ -167,5 +168,53 @@ private slots:
 		QVERIFY(!filetransfer::validate(&request).isEmpty());
 	}
 };
-QTEST_MAIN(TransferTests)
+int main(int argc, char **argv)
+{
+	QApplication app(argc, argv);
+	QStringList arguments = app.arguments();
+	if (arguments.value(1) == "--clipboard-probe") {
+		auto request = filetransfer::clipboardRequest(app.clipboard()->mimeData());
+		if (request.sources.size() != 1 || filetransfer::pathKey(request.sources[0]) != filetransfer::pathKey(arguments.value(2))) return 21;
+		if ((request.operation == filetransfer::Operation::Move) != (arguments.value(3) == "move")) return 22;
+		request.destination = arguments.value(4);
+		auto results = filetransfer::execute(request);
+		return results.size() == 1 && results[0].outcome == filetransfer::Outcome::Completed ? 0 : 23;
+	}
+	if (arguments.value(1) == "--clipboard-publish") {
+		app.clipboard()->setMimeData(filetransfer::clipboardData({arguments.value(2)}, arguments.value(3) == "move" ? filetransfer::Operation::Move : filetransfer::Operation::Copy, "external-test").release());
+		QTimer::singleShot(15000, &app, &QApplication::quit);
+		return app.exec();
+	}
+	if (arguments.value(1) == "--drop-receiver") {
+		QListView view; QStandardItemModel model;
+		auto *folder = new QStandardItem("Drop files here"); folder->setData(arguments.value(3), PathRole); folder->setData(int(Kind::Directory), KindRole); model.appendRow(folder);
+		view.setModel(&model); view.setGeometry(650, 0, 500, 700); view.setWindowTitle("TreeWalker Transfer Receiver");
+		int confirmations = 0;
+		filetransfer::DragController controller(&view, false, [&] { return arguments.value(3); }, [&](filetransfer::Request request, Qt::DropActions allowed) {
+			++confirmations;
+			if (confirmations != 1) { app.exit(31); return false; }
+			bool accepted = filetransfer::confirmDrop(&request, allowed, &view);
+			int code = 0;
+			if (arguments.value(4) == "Cancel") {
+				if (accepted || !QFileInfo::exists(arguments.value(2)) || QFileInfo::exists(QDir(arguments.value(3)).filePath(QFileInfo(arguments.value(2)).fileName()))) code = 32;
+			} else if (!accepted) code = 33;
+			else { auto results = filetransfer::execute(request); if (results.size() != 1 || results[0].outcome != filetransfer::Outcome::Completed) code = 34; }
+			QTimer::singleShot(200, &app, [&, code] { app.exit(code); });
+			return accepted && code == 0;
+		});
+		controller.allowExternalDrops(true);
+		QTimer click;
+		QObject::connect(&click, &QTimer::timeout, [&] {
+			auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+			if (!box) return;
+			if (!QFileInfo::exists(arguments.value(2))) { app.exit(35); return; }
+			for (auto *button : box->buttons()) if (button->text() == arguments.value(4)) { click.stop(); button->click(); return; }
+		});
+		click.start(20); view.show();
+		QTimer::singleShot(15000, &app, [&] { app.exit(36); });
+		return app.exec();
+	}
+	TransferTests tests;
+	return QTest::qExec(&tests, argc, argv);
+}
 #include "transfer_tests.moc"

@@ -10,8 +10,10 @@
 #include <QScrollBar>
 #include <QUuid>
 #include <QHash>
+#include <QLoggingCategory>
 
 namespace filetransfer {
+Q_LOGGING_CATEGORY(dragLog, "treewalker.transfer.drag", QtWarningMsg)
 namespace {
 const char *dragFormat = "application/x-treewalker-private-drag";
 QHash<QByteArray, QStringList> activeDrags;
@@ -41,8 +43,8 @@ bool confirmDrop(Request *request, Qt::DropActions allowed, QWidget *parent)
 	else if (box.clickedButton() == copy) request->operation = Operation::Copy;
 	else return false;
 	Qt::DropAction action = request->operation == Operation::Move ? Qt::MoveAction : Qt::CopyAction;
-	if (!(allowed & action)) {
-		QMessageBox::warning(parent, QObject::tr("Operation unavailable"), QObject::tr("The drag source does not allow this operation. No files were changed."));
+	if (!(allowed & action) || !(allowed & Qt::CopyAction)) {
+		QMessageBox::warning(parent, QObject::tr("Operation unavailable"), QObject::tr("The drag source does not allow this operation or a safe transfer acknowledgment. No files were changed."));
 		return false;
 	}
 	return true;
@@ -106,16 +108,18 @@ bool DragController::eventFilter(QObject *watched, QEvent *event)
 	} else if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
 		auto *drag = static_cast<QDragMoveEvent *>(event);
 		auto request = requestFor(drag->mimeData(), drag->position().toPoint());
+		qCDebug(dragLog) << "drag" << event->type() << drag->possibleActions() << drag->mimeData()->formats() << request.sources << request.destination << validate(&request);
 		// Copy is the transport acknowledgment; only our backend may delete sources.
-		if (!(drag->possibleActions() & Qt::CopyAction) || !validate(&request).isEmpty()) { drag->ignore(); indicator_->hide(); return true; }
+		if (!(drag->possibleActions() & (Qt::CopyAction | Qt::MoveAction)) || !validate(&request).isEmpty()) { drag->ignore(); indicator_->hide(); return true; }
 		hover_ = drag->position().toPoint(); indicate(hover_); scroll_.start();
-		drag->setDropAction(Qt::CopyAction); drag->accept(); return true;
+		drag->setDropAction((drag->possibleActions() & Qt::CopyAction) ? Qt::CopyAction : Qt::MoveAction); drag->accept(); return true;
 	} else if (event->type() == QEvent::DragLeave) { indicator_->hide(); scroll_.stop(); event->accept(); return true; }
 	else if (event->type() == QEvent::Drop) {
 		auto *drop = static_cast<QDropEvent *>(event);
 		indicator_->hide(); scroll_.stop();
 		auto request = requestFor(drop->mimeData(), drop->position().toPoint());
-		if ((drop->possibleActions() & Qt::CopyAction) && validate(&request).isEmpty() && handler_(request, drop->possibleActions())) {
+		qCDebug(dragLog) << "drop" << drop->possibleActions() << request.sources << request.destination;
+		if (validate(&request).isEmpty() && handler_(request, drop->possibleActions()) && (drop->possibleActions() & Qt::CopyAction)) {
 			drop->setDropAction(Qt::CopyAction); drop->accept();
 		} else drop->ignore();
 		return true;
