@@ -7,3 +7,5 @@ SOURCES += transfer_tests.cpp ../src/FileTransfer.cpp
 HEADERS += ../src/FileTransfer.h
 SOURCES += ../src/TransferJob.cpp
 HEADERS += ../src/TransferJob.h ../src/WorkerThread.h
+SOURCES += ../src/TransferClipboard.cpp
+HEADERS += ../src/TransferClipboard.h

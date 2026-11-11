@@ -31,6 +31,14 @@
 #include "common/q/helper.h""
 #include "BookmarkToolButton.h"
 #include "IncrementalSearchHelper.h"
+#include "TransferJob.h"
+#include "TransferClipboard.h"
+#include <QClipboard>
+#include <QKeySequence>
+#include <QProgressDialog>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QUuid>
 #include <cstring>
 #include <unordered_set>
 
@@ -84,6 +92,7 @@ struct MainWindow::Private {
 	Private(FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load, FetchLocationFunction tree_fetcher)
 		: tree_fetcher(std::move(tree_fetcher)), fetcher(std::move(fetcher)), thumbnail_loader(std::move(thumbnail_load)) {}
 	FileItemModel file_item_model;
+	filetransfer::Job *transfer_job = nullptr;
 	FetchLocationFunction tree_fetcher;
 	std::map<ItemIdList, std::shared_ptr<FetchLocationThread>> tree_fetches;
 	quint64 tree_generation = 0;
@@ -279,6 +288,7 @@ MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, Thumbnail
 MainWindow::~MainWindow()
 {
 	const QDeadlineTimer deadline(1000);
+	if (m->transfer_job) { delete m->transfer_job; m->transfer_job = nullptr; }
 	for (auto const &entry : m->tree_fetches) entry.second->requestInterruption();
 	for (auto const &thread : m->fetch_location_threads) thread->requestInterruption();
 	m->thumbnail_loader.requestStop();
@@ -1264,6 +1274,10 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
 			QWidget *focuswidget = QApplication::focusWidget();
 			const bool viewFocused = focuswidget == ui->treeView || focuswidget == ui->tableView || focuswidget == ui->thumbnailView;
+			if (viewFocused && e->matches(QKeySequence::Copy)) { copySelection(false); return true; }
+			if (viewFocused && e->matches(QKeySequence::Cut)) { copySelection(true); return true; }
+			if (viewFocused && e->matches(QKeySequence::Paste)) { pasteSelection(); return true; }
+
 
 			if ((key == Qt::Key_D && e->modifiers() == Qt::AltModifier)
 					|| (key == Qt::Key_L && e->modifiers() == Qt::ControlModifier)) {
@@ -1623,6 +1637,91 @@ void MainWindow::sortFileInfoList(std::vector<FileInfo2> *list)
 			return QString::compare(l.path, r.path, Qt::CaseInsensitive);
 		}(l, r) < 0;
 	});
+}
+
+void MainWindow::copySelection(bool cut)
+{
+	auto *view = qobject_cast<QAbstractItemView *>(QApplication::focusWidget());
+	auto paths = filetransfer::selectedPaths(view);
+	if (paths.isEmpty()) { setStatusBarText(tr("Select filesystem files or folders first.")); return; }
+	auto mime = filetransfer::clipboardData(paths, cut ? filetransfer::Operation::Move : filetransfer::Operation::Copy,
+		QUuid::createUuid().toString(QUuid::WithoutBraces));
+	QApplication::clipboard()->setMimeData(mime.release());
+	setStatusBarText(cut ? tr("%1 item(s) ready to move.").arg(paths.size()) : tr("%1 item(s) copied to clipboard.").arg(paths.size()));
+}
+
+void MainWindow::pasteSelection()
+{
+	auto *view = qobject_cast<QAbstractItemView *>(QApplication::focusWidget());
+	if (!view) return;
+	auto *mime = QApplication::clipboard()->mimeData();
+	auto request = filetransfer::clipboardRequest(mime);
+	request.destination = filetransfer::destinationPath(view->currentIndex(), m->current_location.path, view == ui->treeView, false);
+	startTransfer(request, filetransfer::clipboardToken(mime));
+}
+
+void MainWindow::startTransfer(filetransfer::Request request, QString const &clipboard_token)
+{
+	if (m->transfer_job) { setStatusBarText(tr("Wait for the current transfer to finish.")); return; }
+	QString error = filetransfer::validate(&request);
+	if (!error.isEmpty()) { setStatusBarText(error); return; }
+	auto *job = new filetransfer::Job(request, this);
+	m->transfer_job = job;
+	auto *progress = new QProgressDialog(tr("Preparing file transfer…"), tr("Cancel"), 0, 0, this);
+	progress->setWindowTitle(request.operation == filetransfer::Operation::Move ? tr("Move files") : tr("Copy files"));
+	progress->setWindowModality(Qt::NonModal);
+	progress->setMinimumDuration(0);
+	connect(progress, &QProgressDialog::canceled, job, &filetransfer::Job::cancel);
+	connect(job, &filetransfer::Job::progress, progress, [progress](QString const &path, qint64 bytes) {
+		progress->setLabelText(tr("%1\n%2 bytes copied").arg(path).arg(bytes));
+	});
+	connect(job, &filetransfer::Job::conflict, this, [this, job](QString const &source, QString const &target, bool directory) {
+		QMessageBox box(QMessageBox::Question, tr("Destination exists"),
+			tr("%1 already exists.\nSource: %2\n%3").arg(target, source, directory ? tr("Replacing a folder replaces its contents; folders are not merged.") : QString()), QMessageBox::NoButton, this);
+		auto *skip = box.addButton(tr("Skip"), QMessageBox::RejectRole);
+		auto *rename = box.addButton(tr("Different name"), QMessageBox::ActionRole);
+		auto *replace = box.addButton(tr("Replace"), QMessageBox::DestructiveRole);
+		box.addButton(QMessageBox::Cancel);
+		box.setDefaultButton(skip);
+		box.exec();
+		filetransfer::Decision decision;
+		if (box.clickedButton() == skip) decision.choice = filetransfer::Choice::Skip;
+		else if (box.clickedButton() == replace) decision.choice = filetransfer::Choice::Replace;
+		else if (box.clickedButton() == rename) {
+			bool ok = false;
+			QString name = QInputDialog::getText(this, tr("Different name"), tr("Name:"), QLineEdit::Normal, QFileInfo(target).fileName(), &ok);
+			if (ok) decision = {filetransfer::Choice::Rename, name};
+		}
+		job->resolve(decision);
+	});
+	connect(job, &filetransfer::Job::finished, this, [this, job, progress, request, clipboard_token](filetransfer::Results const &results) {
+		m->transfer_job = nullptr;
+		progress->close(); progress->deleteLater(); job->deleteLater();
+		int completed = 0, skipped = 0, failed = 0, canceled = 0;
+		QStringList details, remaining;
+		for (auto const &item : results) {
+			switch (item.outcome) {
+			case filetransfer::Outcome::Completed: ++completed; break;
+			case filetransfer::Outcome::Skipped: ++skipped; break;
+			case filetransfer::Outcome::Failed: ++failed; break;
+			case filetransfer::Outcome::Canceled: ++canceled; break;
+			}
+			if (item.outcome != filetransfer::Outcome::Completed) remaining.push_back(item.source);
+			if (!item.error.isEmpty()) details.push_back(item.source + ": " + item.error);
+		}
+		if (request.operation == filetransfer::Operation::Move && !clipboard_token.isEmpty()
+			&& filetransfer::clipboardToken(QApplication::clipboard()->mimeData()) == clipboard_token) {
+			if (remaining.isEmpty()) QApplication::clipboard()->clear();
+			else QApplication::clipboard()->setMimeData(filetransfer::clipboardData(remaining, filetransfer::Operation::Move, clipboard_token).release());
+		}
+		setStatusBarText(tr("Transfer: %1 completed, %2 skipped, %3 failed, %4 canceled.").arg(completed).arg(skipped).arg(failed).arg(canceled));
+		if (!details.isEmpty()) {
+			auto *message = new QMessageBox(QMessageBox::Warning, tr("Transfer results"), tr("Some items could not be transferred. Completed items remain at their destinations."), QMessageBox::Ok, this);
+			message->setDetailedText(details.join('\n')); message->setAttribute(Qt::WA_DeleteOnClose); message->show();
+		}
+	});
+	progress->show();
+	job->start();
 }
 
 void MainWindow::clearIconCache()

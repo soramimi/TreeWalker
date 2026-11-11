@@ -8,6 +8,7 @@
 #include "FileItemModel.h"
 #include "FolderTreeView.h"
 #include "ThumbnailLoader.h"
+#include "FileTransfer.h"
 
 namespace Ui {
 class MainWindow;
@@ -127,6 +128,9 @@ public:
 	bool isDir(FolderTreeItem *item) const;
 private:
 	void clearIconCache();
+	void copySelection(bool cut);
+	void pasteSelection();
+	void startTransfer(filetransfer::Request request, QString const &clipboard_token = {});
 private slots:
 	void onHotKey(size_t id);
 	void onRefreshFileListDone(const LocationData &loc);

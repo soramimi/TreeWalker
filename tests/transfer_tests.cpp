@@ -1,5 +1,7 @@
 #include "FileTransfer.h"
 #include "TransferJob.h"
+#include "TransferClipboard.h"
+#include <QUrl>
 #include <QSignalSpy>
 #include <QTemporaryDir>
 #include <QFile>
@@ -9,6 +11,22 @@
 class TransferTests : public QObject {
 	Q_OBJECT
 private slots:
+	void clipboardFormats()
+	{
+		for (auto op : {filetransfer::Operation::Copy, filetransfer::Operation::Move}) {
+			auto data = filetransfer::clipboardData({"/tmp/日本語 space.txt", "/tmp/other"}, op, "token");
+			auto request = filetransfer::clipboardRequest(data.get());
+			QCOMPARE(request.sources, (QStringList{"/tmp/日本語 space.txt", "/tmp/other"}));
+			QCOMPARE(request.operation, op); QCOMPARE(filetransfer::clipboardToken(data.get()), QString("token"));
+		}
+		QMimeData external;
+		external.setData("x-special/gnome-copied-files", "cut\nfile:///tmp/external\n");
+		QCOMPARE(filetransfer::clipboardRequest(&external).operation, filetransfer::Operation::Move);
+		QCOMPARE(filetransfer::clipboardRequest(&external).sources, QStringList{"/tmp/external"});
+		external.setUrls({QUrl("https://example.com/file")});
+		QVERIFY(filetransfer::clipboardRequest(&external).sources.isEmpty());
+	}
+
 	void copyingMovingAndConflicts()
 	{
 		QTemporaryDir root;

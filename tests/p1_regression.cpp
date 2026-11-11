@@ -22,6 +22,8 @@
 #include "StatusLabel.h"
 #include "RenameDialog.h"
 #include <QLineEdit>
+#include <QClipboard>
+#include "TransferClipboard.h"
 #include "worker_test_support.h"
 #include "ThumbnailView.h"
 #include "subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
@@ -114,6 +116,51 @@ private:
 	}
 
 private slots:
+	void transferShortcutsAcrossViews_data()
+	{
+		QTest::addColumn<int>("view"); QTest::addColumn<bool>("cut");
+		for (int view = 0; view < 3; ++view) for (bool cut : {false, true}) QTest::newRow(qPrintable(QString("view-%1-%2").arg(view).arg(cut))) << view << cut;
+	}
+	void transferShortcutsAcrossViews()
+	{
+		QFETCH(int, view); QFETCH(bool, cut);
+		struct ClipboardRestore {
+			std::unique_ptr<QMimeData> saved = std::make_unique<QMimeData>();
+			ClipboardRestore() { auto *old = QApplication::clipboard()->mimeData(); if (old) for (auto const &format : old->formats()) saved->setData(format, old->data(format)); }
+			~ClipboardRestore() { QApplication::clipboard()->setMimeData(saved.release()); }
+		} restore;
+		QTemporaryDir root(QDir::currentPath() + "/treewalker-transfer-XXXXXX");
+		QDir dir(root.path()); QVERIFY(dir.mkdir("source")); QVERIFY(dir.mkdir("target"));
+		QVERIFY(createFile(dir.filePath("source/data.txt")));
+		MainWindow window; QVERIFY(prepareWindow(window)); window.makeTreeCompletely();
+		window.openDir(ItemIdList(dir.filePath("source")));
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 1);
+		window.show(); window.activateWindow();
+		QAbstractItemView *widget = nullptr;
+		if (view == 0) { widget = window.findChild<FolderTreeView *>("treeView"); window.setFocusFolderTree(); }
+		else {
+			window.setViewMode(view == 1 ? MainWindow::List : MainWindow::Thumbnail);
+			widget = view == 1 ? static_cast<QAbstractItemView *>(window.findChild<FileTableView *>("tableView")) : window.findChild<ThumbnailView *>("thumbnailView");
+			window.setFocusItemsView();
+			widget->selectionModel()->select(window.fileitemmodel()->index(0, 0), QItemSelectionModel::ClearAndSelect | QItemSelectionModel::Rows);
+		}
+		QVERIFY(widget); QTRY_VERIFY(widget->hasFocus());
+		QTest::keyClick(widget, cut ? Qt::Key_X : Qt::Key_C, Qt::ControlModifier);
+		auto request = filetransfer::clipboardRequest(QApplication::clipboard()->mimeData());
+		QCOMPARE(request.sources.size(), 1);
+		QCOMPARE(request.operation, cut ? filetransfer::Operation::Move : filetransfer::Operation::Copy);
+		window.openDir(ItemIdList(dir.filePath("target")));
+		QTRY_COMPARE(QDir::fromNativeSeparators(window.currentIIDL().path()), QDir::fromNativeSeparators(dir.filePath("target")));
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 0);
+		widget->setFocus(); QTRY_VERIFY(widget->hasFocus());
+		QTest::keyClick(widget, Qt::Key_V, Qt::ControlModifier);
+		QString copied = dir.filePath(view == 0 ? "target/source/data.txt" : "target/data.txt");
+		QTRY_VERIFY(QFileInfo::exists(copied));
+		QTRY_VERIFY(hasStatus(window, "Transfer: 1 completed, 0 skipped, 0 failed, 0 canceled."));
+		QCOMPARE(QFileInfo::exists(dir.filePath("source/data.txt")), !cut);
+		if (cut) QVERIFY(filetransfer::clipboardToken(QApplication::clipboard()->mimeData()).isEmpty());
+	}
+
 	void providerDupKeepsDestination()
 	{
 		QTemporaryDir first, second;
