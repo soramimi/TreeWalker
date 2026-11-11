@@ -11,7 +11,7 @@
 // local destruction, so a ready future can be joined without waiting on COM.
 class WorkerThread {
 	std::thread thread_;
-	std::future<void> finished_;
+	std::shared_future<void> finished_;
 public:
 	WorkerThread() = default;
 	WorkerThread(WorkerThread &&) noexcept = default;
@@ -28,13 +28,14 @@ public:
 	{
 		wait(QDeadlineTimer(0));
 		std::packaged_task<void()> task(std::move(function));
-		finished_ = task.get_future();
+		finished_ = task.get_future().share();
 		thread_ = std::thread([task = std::move(task)]() mutable { task.make_ready_at_thread_exit(); });
 	}
 	bool isRunning() const
 	{
 		return finished_.valid() && finished_.wait_for(std::chrono::nanoseconds(0)) != std::future_status::ready;
 	}
+	std::shared_future<void> completion() const { return finished_; }
 	bool wait(QDeadlineTimer deadline)
 	{
 		bool ready = true;

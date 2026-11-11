@@ -19,14 +19,20 @@ public:
 	void start();
 	void requestInterruption();
 	bool isRunning() const;
+	bool isPending() const { return isRunning() || notification_timer_.isActive(); }
 	bool wait(QDeadlineTimer deadline = QDeadlineTimer(1000));
 	static LocationData fetch(LocationData data, StopRequested const &stop);
+	static LocationData fetchDirectories(LocationData data, StopRequested const &stop);
+	static constexpr int maximumConcurrentFetches = 4;
 private:
 	struct State;
 	std::shared_ptr<State> state_;
 	WorkerThread thread_;
 	Fetcher fetcher_;
 	QTimer notification_timer_;
+	std::function<void()> pending_;
+	void tryStart();
+	static LocationData fetchImpl(LocationData data, StopRequested const &stop, bool directories_only);
 	void deliverResult();
 signals:
 	void done(LocationData const &data);

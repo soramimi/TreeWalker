@@ -69,7 +69,7 @@ private:
 	struct Private;
 	Private *m;
 public:
-	explicit MainWindow(QWidget *parent = 0, FetchLocationFunction fetcher = {}, ThumbnailLoader::LoadFunction thumbnail_load = {});
+	explicit MainWindow(QWidget *parent = 0, FetchLocationFunction fetcher = {}, ThumbnailLoader::LoadFunction thumbnail_load = {}, FetchLocationFunction tree_fetcher = {});
 	~MainWindow();
 	
 	enum ViewMode {
@@ -148,17 +148,8 @@ private:
 	QString sizeText(const FileInfo2 &info);
 	QString nameText(const FileInfo2 &info);
 	
-	struct TreeInfo {
-#ifdef Q_OS_WIN
-		ItemIdList iidl;
-		ItemIdList nextiidl;
-#else
-		QString path;
-		QString nextpath;
-#endif
-		FolderTreeItem *treeitem;
-	};
-	void makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent, TreeInfo *find = nullptr);
+	void makeTree(FolderTreeItem *parent);
+	void applyTreeResult(LocationData const &result, quint64 generation, quint64 revision);
 	void fetchSubFolders(FolderTreeItem *parent = {}, bool check_placeholder = true);
 	
 	FolderTreeItem *findBookmarkTreeItem(QString const &path, FolderTreeItem *item);
@@ -171,9 +162,11 @@ private:
 	void fetchBookmarks(QString const &sourcePath = {});
 	void makeBookmarkMap(const QString &path, QJsonValue v, int depth, FolderTreeItem *parent);
 
-	void openDir(const ItemIdList &iidl);
+	void openDir(const ItemIdList &iidl, bool retry = false);
 	void openTableItem(const QModelIndex &index);
 	void refreshFileList2(const LocationData &loc, bool force);
+	bool renamePath(QString const &path, QString const &name);
+	bool createFolder(QString const &name);
 	void renameFile(const QString &path);
 	void renameFolder(const QString &location);
 	void setAppSettings(const ApplicationSettings &appsettings);
@@ -183,11 +176,9 @@ private:
 	QString currentPath() const;
 	ItemIdList currentIIDL() const;
 	void setCurrentDir(const QString &dir);
-	FileSystemProviderPtr newFileSystemPtr(ItemIdList iidl);
 	void toggleTreeItemExpansion();
 	FolderTreeItem *makeTreeCompletely();
 	void setCurrentIIDL(ItemIdList iidl);
-	bool hasSubDir(AbstractFileSystemProvider *fs, const ItemIdList &iidl);
 	void addPlaceholder(FolderTreeItem *item);
 	void updateCurrentFolder();
 	

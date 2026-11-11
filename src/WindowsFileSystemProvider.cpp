@@ -392,6 +392,7 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 	fi.iidl = iidl.d.iidl;
 	fi.name = QString::fromUtf16((ushort const *)sfinfo.szDisplayName);
 	fi.isdir = fi.path.isEmpty() || qfi.isDir() || (sfinfo.dwAttributes & SFGAO_FOLDER);
+	fi.ishidden = (sfinfo.dwAttributes & SFGAO_HIDDEN) || qfi.isHidden() || fi.name.startsWith('.');
 
 	if (isPhysicalFilesystemFolder(iidl_p)) {
 		// 物理ファイルシステムのフォルダはストックアイコンを使用する。

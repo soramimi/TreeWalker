@@ -175,9 +175,11 @@ private slots:
 		ThumbnailLoader loader([&](auto const &) { ++calls; return QImage{}; }, 2);
 		connect(&loader, &ThumbnailLoader::taskDone, &loader, [&](auto) { ++completed; }, Qt::DirectConnection);
 		loader.start();
+		int expected = 0;
 		for (QString const &path : {QString("a"), QString("b")}) {
 			loader.query(path);
-			QTRY_COMPARE(completed.load(), calls.load());
+			++expected;
+			QTRY_COMPARE(completed.load(), expected);
 			QTRY_VERIFY(loader.query(path));
 		}
 		auto old = loader.query("a");

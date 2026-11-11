@@ -16,6 +16,8 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QInputDialog>
+#include <QRegularExpression>
 #include <QKeyEvent>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
@@ -79,9 +81,13 @@ public:
 };
 
 struct MainWindow::Private {
-	Private(FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load)
-		: fetcher(std::move(fetcher)), thumbnail_loader(std::move(thumbnail_load)) {}
+	Private(FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load, FetchLocationFunction tree_fetcher)
+		: tree_fetcher(std::move(tree_fetcher)), fetcher(std::move(fetcher)), thumbnail_loader(std::move(thumbnail_load)) {}
 	FileItemModel file_item_model;
+	FetchLocationFunction tree_fetcher;
+	std::map<ItemIdList, std::shared_ptr<FetchLocationThread>> tree_fetches;
+	quint64 tree_generation = 0;
+	quint64 navigation_generation = 0;
 
 	ItemIdList current_iidl;
 	FetchLocationFunction fetcher;
@@ -91,8 +97,7 @@ struct MainWindow::Private {
 	QTimer update_list_timer;
 	QTimer network_changed_timer;
 	bool suppress_current_changed = false;
-	FileSystemProviderPtr fs_factory;
-	FolderTreeItem *my_computer_item = nullptr;
+		FolderTreeItem *my_computer_item = nullptr;
 	FolderTreeItem *drive_root = nullptr;
 	FolderTreeItem *root_dir_item = nullptr; // for POSIX=/, for Windows=Desktop
 
@@ -134,6 +139,14 @@ struct MainWindow::Private {
 		}
 	};
 	std::optional<ReloadSelection> reload_selection;
+	std::optional<ReloadSelection> pending_reload;
+	FilterTarget pending_filter_target = FilterTarget::FileListViewSearch;
+	QString pending_filter;
+	bool navigation_pending = false;
+	std::set<ItemIdList> tree_failed;
+	std::map<ItemIdList, std::pair<quint64, LocationData>> deferred_trees;
+	std::map<ItemIdList, quint64> tree_revisions;
+	quint64 next_tree_revision = 0;
 
 	bool hidden_files_visible = false;
 
@@ -186,9 +199,9 @@ void MainWindow::addPlaceholder(FolderTreeItem *item)
 	if (item->addChild(placeholder.get())) placeholder.release();
 }
 
-MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load)
+MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, ThumbnailLoader::LoadFunction thumbnail_load, FetchLocationFunction tree_fetcher)
 	: QMainWindow(parent)
-	, m(new Private(std::move(fetcher), std::move(thumbnail_load)))
+	, m(new Private(std::move(fetcher), std::move(thumbnail_load), std::move(tree_fetcher)))
 	, ui(new Ui::MainWindow)
 {
 	ui->setupUi(this);
@@ -231,9 +244,6 @@ MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, Thumbnail
 	connect(&m->network_discovery_thread, &NetworkDiscoveryThread::filesChanged, this, &MainWindow::onNetworkFilesChanged);
 
 	m->network_discovery_thread.start();
-	m->fs_factory = FileSystemProviderPtr(new WindowsFileSystemProvider());
-#else
-	m->fs_factory = FileSystemProviderPtr(new BasicFileSystemProvider(QString("/").toUtf8()));
 #endif
 
 	auto AddBookmark = [&](BookmarkProperty const &prop){
@@ -269,6 +279,7 @@ MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, Thumbnail
 MainWindow::~MainWindow()
 {
 	const QDeadlineTimer deadline(1000);
+	for (auto const &entry : m->tree_fetches) entry.second->requestInterruption();
 	for (auto const &thread : m->fetch_location_threads) thread->requestInterruption();
 	m->thumbnail_loader.requestStop();
 #ifdef Q_OS_WIN
@@ -277,6 +288,7 @@ MainWindow::~MainWindow()
 	for (std::shared_ptr<FetchLocationThread> &thread : m->fetch_location_threads) {
 		thread->wait(deadline);
 	}
+	for (auto const &entry : m->tree_fetches) entry.second->wait(deadline);
 	m->thumbnail_loader.wait(deadline);
 	delete m;
 	delete ui;
@@ -336,7 +348,7 @@ void MainWindow::onNetworkFilesChanged()
  */
 void MainWindow::updateNetworkTree()
 {
-	if (isIncrementalSearching()) return;
+	if (isIncrementalSearching() && filtertarget() == FilterTarget::FolderTreeSearch) return;
 
 	FolderTreeItem *net = ui->treeView->itemFromIidl(FileItem::getNetwork().idlist());
 	if (!net) return;
@@ -449,128 +461,109 @@ void MainWindow::setTreeViewSubDirItemData(FolderTreeItem *item, FileInfo2 const
 	item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>(iidl));
 }
 
-bool MainWindow::hasSubDir(AbstractFileSystemProvider *fs, ItemIdList const &iidl)
+void MainWindow::makeTree(FolderTreeItem *parent)
 {
-	auto fs2 = fs->dup(iidl);
-	while (fs2->fetch()) {
-		FileInfo2 info2 = fs2->fileInfo();
-		if (info2.isdir) {
-			return true;
+	if ((isIncrementalSearching() && filtertarget() == FilterTarget::FolderTreeSearch) || !parent) return;
+	const ItemIdList identity = parent->iidl();
+	if (m->tree_failed.count(identity)) return;
+	auto previous = m->tree_fetches.find(identity);
+	if (previous != m->tree_fetches.end() && previous->second->isPending()) return;
+	const quint64 generation = m->tree_generation;
+	const quint64 revision = ++m->next_tree_revision;
+	m->tree_revisions[identity] = revision;
+	auto task = std::make_shared<FetchLocationThread>(m->tree_fetcher ? m->tree_fetcher : FetchLocationFunction(FetchLocationThread::fetchDirectories));
+	task->data.kind = Kind::Directory;
+	task->data.iidl = identity;
+	task->data.path = parent->data(0, PathRole).toString();
+	m->tree_fetches[identity] = task;
+	connect(task.get(), &FetchLocationThread::done, this, [this, generation, revision](LocationData const &result) {
+		applyTreeResult(result, generation, revision);
+	});
+	connect(task.get(), &FetchLocationThread::failed, this, [this, generation, identity, revision](LocationData const &, QString const &message) {
+		if (generation == m->tree_generation && m->tree_revisions[identity] == revision) {
+			m->tree_failed.insert(identity);
+			setStatusBarText(message);
 		}
-	}
-	return false;
+	});
+	task->start();
 }
 
-void MainWindow::makeTree(AbstractFileSystemProvider *fs, FolderTreeItem *parent, TreeInfo *find)
+void MainWindow::applyTreeResult(LocationData const &result, quint64 generation, quint64 revision)
 {
-	qDebug() << Q_FUNC_INFO;
-
-	if (isIncrementalSearching()) return;
-
-	clearIconCache();
-
-	std::vector<FileInfo2> dirs;
-
-#ifdef Q_OS_WIN
-	if (WindowsFileSystemProvider *wfs = dynamic_cast<WindowsFileSystemProvider *>(fs)) {
-		if (wfs->iidl() == FileItem::getNetwork().idlist()) {
-			std::vector<FileInfo2> dirs2 = m->network_discovery_thread.files();
-			for (FileInfo2 const &info : dirs2) {
-				if (info.isdir) {
-					if (info.name == "." || info.name == "..") {
-						continue;
-					}
-					dirs.push_back(info);
+	if (generation != m->tree_generation || m->tree_revisions[result.iidl] != revision) return;
+	auto *parent = ui->treeView->itemFromIidl(result.iidl);
+	if (!parent) return;
+	// Filtering temporarily flattens the model; retry after search ends.
+	if (isIncrementalSearching() && filtertarget() == FilterTarget::FolderTreeSearch) {
+		m->deferred_trees[result.iidl] = {revision, result};
+		return;
+	}
+	ItemIdList selected = ui->treeView->currentItem() ? ui->treeView->currentItem()->iidl() : ItemIdList{};
+	bool selection_changed = false;
+	{
+		QScopedValueRollback<bool> suppress(m->suppress_current_changed, true);
+		QSignalBlocker block(ui->treeView);
+		std::vector<FileInfo2> directories;
+		for (auto const &info : result.files) {
+			if (!info.isdir || info.name == "." || info.name == "..") continue;
+			if (!m->hidden_files_visible && info.ishidden) continue;
+			if (m->iidl_hide_set.count(info.iidl)) continue;
+			directories.push_back(info);
+		}
+		// Retain unchanged nodes, their selections, and expanded descendants.
+		std::set<ItemIdList> wanted;
+		for (auto const &info : directories) wanted.insert(info.iidl);
+		std::map<ItemIdList, FolderTreeItem *> existing;
+		for (int row = parent->childCount() - 1; row >= 0; --row) {
+			auto *child = parent->child(row);
+			if (!wanted.count(child->iidl())) delete parent->takeChild(row);
+			else existing[child->iidl()] = child;
+		}
+		for (int row = 0; row < static_cast<int>(directories.size()); ++row) {
+			auto const &info = directories[row];
+			FolderTreeItem *child = nullptr;
+			for (int old = row; existing.count(info.iidl) && old < parent->childCount(); ++old) {
+				if (parent->child(old)->iidl() == info.iidl) {
+					child = parent->child(old);
+					if (old != row) { parent->takeChild(old); parent->addChild(child, row); }
+					break;
 				}
 			}
-			goto happy;
+			if (!child) {
+				child = new_FolderTreeItem();
+				setTreeViewSubDirItemData(child, info);
+				addPlaceholder(child);
+				parent->addChild(child, row);
+			}
+		}
+		if (!selected.empty()) {
+			auto *current = ui->treeView->itemFromIidl(selected);
+			if (!current) current = parent;
+			ui->treeView->setCurrentItem(current);
+			selection_changed = current->iidl() != selected;
 		}
 	}
-#endif
-
-	while (fs->fetch()) {
-		FileInfo2 info = fs->fileInfo();
-		if (info.isdir) {
-			QString name = info.name;
-			if (name == "." || name == "..") {
-				continue;
-			}
-			if (!m->hidden_files_visible && name.startsWith('.')) {
-				continue;
-			}
-			dirs.push_back(info);
-		}
-	}
-
-happy:;
-
-	if (!parent->clearChildren()) return;
-
-	if (dirs.empty()) {
-		// addPlaceholder(parent);
-	} else {
-		sortFileInfoList(&dirs);
-
-		for (FileInfo2 const &info: dirs) {
-			if (m->iidl_hide_set.find(info.iidl) != m->iidl_hide_set.end()) {
-				continue;
-			}
-			auto item = new_FolderTreeItem();
-			setTreeViewSubDirItemData(item, info);
-#ifdef Q_OS_WIN
-			const bool check_subdir = false;
-#else
-			const bool check_subdir = true;
-#endif
-			if (check_subdir) {
-				// サブディレクトリがあるものだけplaceholderを追加する版
-				// Windowsでは遅すぎて使い物にならない
-				if (hasSubDir(fs, info.iidl)) {
-					addPlaceholder(item);
-				}
-			} else {
-				// 全部の子にplaceholderを追加する版
-				addPlaceholder(item);
-			}
-			parent->addChild(item);
-			if (find) {
-#ifdef Q_OS_WIN
-				int len = info.iidl.size();
-				if (len > 4) {
-					len -= 4;
-					if (find->iidl.size() > len) {
-						if (memcmp(info.iidl.data(), find->iidl.data(), len) == 0) {
-							find->nextiidl = info.iidl;
-							find->treeitem = item;
-						}
-					}
-				}
-#else
-				if (find->path.startsWith(info.path)) {
-					uchar c = find->path.utf16()[info.path.size()];
-					if (c == '/' || c == 0) {
-						find->nextpath = info.path;
-						find->treeitem = item;
-					}
-				}
-#endif
-			}
-		}
-
-		ui->treeView->setExpanded(parent, true);
+	if (selection_changed && !m->suppress_current_changed) {
+		on_treeView_currentItemChanged(ui->treeView->currentItem(), nullptr);
 	}
 }
+
 
 FolderTreeItem *MainWindow::makeTreeCompletely()
 {
+	++m->tree_generation;
+	for (auto const &entry : m->tree_fetches) entry.second->requestInterruption();
+	m->tree_fetches.clear();
+	m->tree_failed.clear();
+	m->deferred_trees.clear();
+	m->tree_revisions.clear();
 	QScopedValueRollback<bool> suppress(m->suppress_current_changed, true);
 	QSignalBlocker block(ui->treeView);
 	clearAllFilters();
 	ui->treeView->clear();
 
 	FileInfo2 info = firstFileInfo();
-	auto fs = m->fs_factory->create(info.iidl);
-	
+
 	m->root_dir_item = new_FolderTreeItem();
 	setTreeViewSubDirItemData(m->root_dir_item, info);
 
@@ -582,7 +575,7 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	m->my_computer_item->addChild(m->root_dir_item);
 	m->my_computer_item->setData(0, IidlRole, QVariant::fromValue<ItemIdList>((QS)prefix_mycomputer));
 
-	makeTree(fs.get(), m->root_dir_item);
+	makeTree(m->root_dir_item);
 	m->drive_root = m->root_dir_item;
 
 	{
@@ -614,14 +607,9 @@ FolderTreeItem *MainWindow::makeTreeCompletely()
 	return m->root_dir_item;
 }
 
-FileSystemProviderPtr MainWindow::newFileSystemPtr(ItemIdList iidl)
-{
-	return createFileSystemProvider(iidl);
-}
-
 void MainWindow::fetchSubFolders(FolderTreeItem *parent, bool check_placeholder)
 {
-	if (isIncrementalSearching()) return;
+	if (isIncrementalSearching() && filtertarget() == FilterTarget::FolderTreeSearch) return;
 	if (!parent) return;
 	if (parent == m->my_computer_item) return;
 	Kind kind = (Kind)parent->data(0, KindRole).toInt();
@@ -636,9 +624,15 @@ void MainWindow::fetchSubFolders(FolderTreeItem *parent, bool check_placeholder)
 			return false;
 		};
 		if (!check_placeholder || HasPlaceholder()) {
-			ItemIdList iidl = parent->data(0, IidlRole).value<ItemIdList>();
-			FileSystemProviderPtr fs = newFileSystemPtr(iidl);
-			makeTree(fs.get(), parent);
+			if (!check_placeholder) {
+				m->tree_failed.erase(parent->iidl());
+				auto previous = m->tree_fetches.find(parent->iidl());
+				if (previous != m->tree_fetches.end()) {
+					previous->second->requestInterruption();
+					m->tree_fetches.erase(previous);
+				}
+			}
+			makeTree(parent);
 		}
 	}
 }
@@ -709,8 +703,6 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		}
 	}
 
-	ui->tableView->beginResetModel();
-	
 	const QString filter_text = filtertarget() == FilterTarget::FolderTreeSearch ? QString() : getIncrementalSearchText();
 	m->thumbnail_paths.clear();
 	if (loc.isDir()) for (auto const &item : items) {
@@ -724,7 +716,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 		}
 	}
 
-	ui->tableView->endResetModel();
+	ui->tableView->resetColumnWidth();
 	
 	ui->tableView->setKind(loc.kind);
 	ui->thumbnailView->setKind(loc.kind);
@@ -754,6 +746,8 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 void MainWindow::updateFileView()
 {
 	const quint64 generation = ++m->fetch_generation;
+	m->fetch_location_threads.erase(std::remove_if(m->fetch_location_threads.begin(), m->fetch_location_threads.end(),
+		[](auto const &task) { return !task->isPending(); }), m->fetch_location_threads.end());
 	m->location_loading = false;
 	m->reload_selection.reset();
 	m->thumbnail_paths.clear();
@@ -851,6 +845,14 @@ void MainWindow::updateViews()
 	}
 	if (iidl.empty()) iidl = m->drive_root->iidl();
 	openDir(iidl);
+	if (m->navigation_pending) {
+		m->pending_reload = std::move(selection);
+		m->pending_filter_target = previous_target;
+		m->pending_filter = previous_filter;
+		m->filter_target = previous_target;
+		if (!previous_filter.isEmpty()) setIncrementalSearchText(previous_filter);
+		return;
+	}
 	if (selection.matchesLocation(m->current_location)) {
 		m->filter_target = previous_target;
 		if (!previous_filter.isEmpty()) setIncrementalSearchText(previous_filter);
@@ -920,6 +922,7 @@ void MainWindow::moveToParent()
  */
 void MainWindow::setIncrementalSearchText(QString const &text)
 {
+	if (m->pending_reload && !m->suppress_current_changed) m->pending_filter = text;
 	m->reload_selection.reset();
 	// qDebug() << text;
 	FilterTarget ft = filtertarget();
@@ -945,6 +948,15 @@ void MainWindow::setIncrementalSearchText(QString const &text)
 	} else if (ft == FilterTarget::ThumbnailViewSearch) {
 		ui->thumbnailView->setFilterText(text);
 	}
+	if (text.isEmpty() && !m->deferred_trees.empty()) {
+		auto results = std::move(m->deferred_trees);
+		m->deferred_trees.clear();
+		const quint64 generation = m->tree_generation;
+		QTimer::singleShot(0, this, [this, results = std::move(results), generation] {
+			for (auto const &entry : results) applyTreeResult(entry.second.second, generation, entry.second.first);
+		});
+	}
+
 }
 
 void MainWindow::clearFileItems()
@@ -1012,23 +1024,76 @@ void MainWindow::toggleTreeItemExpansion()
 void MainWindow::renameFolder(QString const &location)
 {
 	RenameDialog dlg(RenameDialog::Folder, location, this);
-	if (dlg.exec() == QDialog::Accepted) {
-
-	}
+	if (dlg.exec() == QDialog::Accepted) renamePath(location, dlg.text());
 }
 
 void MainWindow::renameFile(QString const &path)
 {
 	RenameDialog dlg(RenameDialog::File, path, this);
-	if (dlg.exec() == QDialog::Accepted) {
+	if (dlg.exec() == QDialog::Accepted) renamePath(path, dlg.text());
+}
 
+namespace {
+
+bool validEntryName(QString const &name)
+{
+	if (name.isEmpty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') || name.contains(QChar(0))) return false;
+#ifdef Q_OS_WIN
+	if (name.endsWith('.') || name.endsWith(' ')) return false;
+	for (QChar c : name) if (c.unicode() < 32 || QString(":*?\"<>|").contains(c)) return false;
+	static const QRegularExpression reserved("^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(?:\\.|$)", QRegularExpression::CaseInsensitiveOption);
+	if (reserved.match(name).hasMatch()) return false;
+#endif
+	return true;
+}
+
+}
+
+bool MainWindow::renamePath(QString const &path, QString const &name)
+{
+	QFileInfo source(path);
+	if (!validEntryName(name) || path.isEmpty() || source.isRoot() || (!source.exists() && !source.isSymLink())) {
+		setStatusBarText(tr("Invalid file or folder name."));
+		return false;
 	}
+	QString target = source.dir().filePath(name);
+	if (target == source.absoluteFilePath()) return true;
+	QFileInfo destination(target);
+	if (destination.exists() || destination.isSymLink()) {
+		setStatusBarText(tr("An item with that name already exists."));
+		return false;
+	}
+	const bool directory = source.isDir() && !source.isSymLink();
+	if (!(directory ? QDir().rename(path, target) : QFile::rename(path, target))) {
+		setStatusBarText(tr("Cannot rename this item. Check permissions and whether it is in use."));
+		return false;
+	}
+	if (directory) {
+		makeTreeCompletely();
+		openDir(ItemIdList(target));
+	} else updateViews();
+	return true;
+}
+
+bool MainWindow::createFolder(QString const &name)
+{
+	const QString path = m->current_location.path;
+	if (!m->current_location.isDir() || !QFileInfo(path).isDir() || !validEntryName(name)) {
+		setStatusBarText(tr("Invalid folder name or location."));
+		return false;
+	}
+	if (!QDir(path).mkdir(name)) {
+		setStatusBarText(tr("Cannot create this folder. Check permissions and whether the name already exists."));
+		return false;
+	}
+	updateViews();
+	return true;
 }
 
 QString MainWindow::currentFilePath()
 {
-	auto index = ui->tableView->currentIndex();
-	return ui->tableView->model()->data(index, PathRole).toString();
+	auto *view = viewmode() == List ? static_cast<QAbstractItemView *>(ui->tableView) : ui->thumbnailView;
+	return view->currentIndex().data(PathRole).toString();
 }
 
 void MainWindow::onRename()
@@ -1037,9 +1102,10 @@ void MainWindow::onRename()
 	auto focuswidget = QApplication::focusWidget();
 	if (focuswidget == ui->treeView) {
 		path = currentLocation();
-	} else if (focuswidget == ui->tableView) {
+	} else if (focuswidget == ui->tableView || focuswidget == ui->thumbnailView) {
 		path = currentFilePath();
 	}
+	if (path.isEmpty() || (!QFileInfo::exists(path) && !QFileInfo(path).isSymLink())) return;
 	QFileInfo info(path);
 	if (info.isDir()) {
 		renameFolder(path);
@@ -1060,7 +1126,7 @@ bool MainWindow::acceptKeyEvent(QKeyEvent *event)
 
 void MainWindow::updateCurrentFolder()
 {
-	if (isIncrementalSearching()) return;
+	if (isIncrementalSearching() && filtertarget() == FilterTarget::FolderTreeSearch) return;
 	auto item = ui->treeView->currentItem();
 	fetchSubFolders(item, false);
 }
@@ -1692,6 +1758,7 @@ void MainWindow::on_treeView_currentItemChanged(FolderTreeItem *current, FolderT
 	(void)previous;
 
 	if (m->suppress_current_changed) return;
+	++m->navigation_generation;
 
 	m->thumbnail_loader.clearRequests();
 	
@@ -1760,6 +1827,7 @@ FolderTreeItem *MainWindow::openDirWindows(ItemIdList const &iidl)
 #else
 FolderTreeItem *MainWindow::openDirPosix(ItemIdList const &iidl)
 {
+	if (m->root_dir_item && m->root_dir_item->iidl() == iidl) return m->root_dir_item;
 	std::vector<ItemIdList> list;
 	{
 		ItemIdList current = iidl;
@@ -1842,8 +1910,11 @@ void MainWindow::setCurrentDir(const QString &dir)
 	setCurrentIIDL(dir);
 }
 
-void MainWindow::openDir(ItemIdList const &iidl)
+void MainWindow::openDir(ItemIdList const &iidl, bool retry)
 {
+	if (!retry) m->pending_reload.reset();
+	m->navigation_pending = false;
+	const quint64 navigation = ++m->navigation_generation;
 	auto fail = [&](){ setStatusBarText(tr("Cannot open this location.")); };
 	if (iidl.empty()) {
 		fail();
@@ -1926,7 +1997,14 @@ void MainWindow::openDir(ItemIdList const &iidl)
 			table_selection.restore();
 			thumbnail_selection.restore();
 			updateStatusBarText();
-			fail();
+			bool pending = false;
+			for (auto const &entry : m->tree_fetches) pending |= entry.second->isPending();
+			if (pending) {
+				m->navigation_pending = true;
+				QTimer::singleShot(10, this, [this, destination, navigation] {
+					if (navigation == m->navigation_generation) openDir(destination, true);
+				});
+			} else fail();
 			return;
 		}
 		setCurrentIIDL(destination);
@@ -1938,6 +2016,14 @@ void MainWindow::openDir(ItemIdList const &iidl)
 	}
 	// Also refresh when navigating to the already selected directory.
 	on_treeView_currentItemChanged(item, nullptr);
+	if (m->pending_reload && m->pending_reload->matchesLocation(m->current_location)) {
+		m->filter_target = m->pending_filter_target;
+		if (getIncrementalSearchText() != m->pending_filter) setIncrementalSearchText(m->pending_filter);
+		m->reload_selection = std::move(m->pending_reload);
+		m->pending_reload.reset();
+		if (!m->location_loading) restoreReloadSelection();
+		updateStatusBarText();
+	}
 }
 
 
@@ -2008,10 +2094,13 @@ void MainWindow::on_tableView_customContextMenuRequested(const QPoint &pos)
 	QPoint pt = QCursor::pos() + QPoint(8, -8);
 	QMenu menu;
 	QAction *a_create_folder = menu.addAction(tr("Create folder"));
+	a_create_folder->setEnabled(m->current_location.isDir() && QFileInfo(m->current_location.path).isDir());
 	QAction *a = menu.exec(pt);
 	if (a) {
 		if (a == a_create_folder) {
-			return;
+			bool accepted = false;
+			QString name = QInputDialog::getText(this, tr("Create folder"), tr("Folder name:"), QLineEdit::Normal, {}, &accepted);
+			if (accepted) createFolder(name);
 		}
 	}
 }

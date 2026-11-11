@@ -27,7 +27,6 @@ public:
 	std::shared_ptr<AbstractFileSystemProvider> dup(ItemIdList const &iidl)
 	{
 		std::shared_ptr<BasicFileSystemProvider> ret = std::make_shared<BasicFileSystemProvider>(iidl);
-		ret->d = d;
 		return ret;
 	}
 

@@ -80,5 +80,5 @@ RenameDialog::~RenameDialog()
 
 QString RenameDialog::text() const
 {
-	return {};
+	return ui->lineEdit_entirename->text();
 }

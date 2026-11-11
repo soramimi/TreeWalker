@@ -20,6 +20,8 @@
 #include "LoadPlugin.h"
 #include "MainWindow.h"
 #include "StatusLabel.h"
+#include "RenameDialog.h"
+#include <QLineEdit>
 #include "worker_test_support.h"
 #include "ThumbnailView.h"
 #include "subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
@@ -112,6 +114,98 @@ private:
 	}
 
 private slots:
+	void providerDupKeepsDestination()
+	{
+		QTemporaryDir first, second;
+		QVERIFY(first.isValid() && second.isValid());
+		QVERIFY(createFile(second.filePath("only-in-second.txt")));
+		BasicFileSystemProvider provider(ItemIdList(first.path()));
+		auto duplicate = provider.dup(ItemIdList(second.path()));
+		QCOMPARE(QDir::fromNativeSeparators(duplicate->currentDir()), QDir::fromNativeSeparators(second.path()));
+		QVERIFY(duplicate->hasReadPermission());
+		QVERIFY(duplicate->fetch());
+		QCOMPARE(duplicate->fileInfo().path, second.filePath("only-in-second.txt"));
+		QVERIFY(!duplicate->fetch());
+	}
+
+	void renameDialogReturnsEditedName()
+	{
+		RenameDialog dialog(RenameDialog::File, "/tmp/original.txt");
+		auto *name = dialog.findChild<QLineEdit *>("lineEdit_basename");
+		QVERIFY(name);
+		name->setText("renamed");
+		QCOMPARE(dialog.text(), QString("renamed.txt"));
+	}
+
+	void filesystemActionsValidateNamesAndPreserveExistingFiles()
+	{
+		QTemporaryDir files(QDir::currentPath() + "/treewalker-actions-XXXXXX");
+		QVERIFY(files.isValid());
+		QVERIFY(createFile(files.filePath("original.txt")));
+		QVERIFY(createFile(files.filePath("existing.txt")));
+		MainWindow window;
+		QVERIFY(prepareWindow(window));
+		window.makeTreeCompletely();
+		window.openDir(ItemIdList(files.path()));
+		QTRY_COMPARE(QDir::fromNativeSeparators(window.currentIIDL().path()), QDir::fromNativeSeparators(files.path()));
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 2);
+		window.setViewMode(MainWindow::Thumbnail);
+		auto *thumbnails = window.findChild<ThumbnailView *>("thumbnailView");
+		QVERIFY(thumbnails);
+		thumbnails->setCurrentIndex(window.fileitemmodel()->index(1, 0));
+		QCOMPARE(window.currentFilePath(), thumbnails->currentIndex().data(PathRole).toString());
+		QVERIFY(!window.renamePath(files.filePath("original.txt"), "existing.txt"));
+		QVERIFY(!window.renamePath(files.filePath("original.txt"), "../outside.txt"));
+		QVERIFY(!window.renamePath(files.filePath("original.txt"), ""));
+		QVERIFY(QFileInfo::exists(files.filePath("original.txt")));
+		QVERIFY(window.renamePath(files.filePath("original.txt"), "renamed.txt"));
+		QVERIFY(!QFileInfo::exists(files.filePath("original.txt")));
+		QVERIFY(QFileInfo::exists(files.filePath("renamed.txt")));
+		QTRY_COMPARE(QDir::fromNativeSeparators(window.currentIIDL().path()), QDir::fromNativeSeparators(files.path()));
+		QVERIFY(window.createFolder("created"));
+		QVERIFY(QFileInfo(files.filePath("created")).isDir());
+		QVERIFY(!window.createFolder("created"));
+		QVERIFY(!window.createFolder("../outside"));
+		QVERIFY(!window.createFolder(".."));
+		QVERIFY(window.renamePath(files.filePath("created"), "renamed-folder"));
+		QVERIFY(!QFileInfo::exists(files.filePath("created")));
+		QVERIFY(QFileInfo(files.filePath("renamed-folder")).isDir());
+		QTRY_COMPARE(QDir::fromNativeSeparators(window.currentIIDL().path()), QDir::fromNativeSeparators(files.filePath("renamed-folder")));
+	}
+
+	void treeFetchIsAsynchronousAndRejectsOldGeneration()
+	{
+		auto gate = std::make_shared<WorkerGate>();
+		auto calls = std::make_shared<std::atomic<int>>(0);
+		ReleaseWorkers cleanup{gate};
+		MainWindow window(nullptr, {}, {}, [gate, calls](LocationData data, auto const &) {
+			const int call = ++*calls;
+			if (call == 1) gate->block();
+			FileInfo2 child;
+			child.isdir = true;
+			child.name = call == 1 ? "old" : "new";
+			child.path = "/" + child.name;
+			child.iidl = ItemIdList(child.path);
+			data.files.push_back(child);
+			return data;
+		});
+		QVERIFY(prepareWindow(window));
+		window.makeTreeCompletely();
+		QTRY_VERIFY(gate->entered.available() >= 1);
+		gate->entered.acquire();
+		bool responsive = false;
+		QTimer::singleShot(0, &window, [&] { responsive = true; });
+		QTRY_VERIFY(responsive);
+		auto *root = window.makeTreeCompletely();
+		QTRY_COMPARE(root->childCount(), 1);
+		QCOMPARE(root->child(0)->text(), QString("new"));
+		gate->release.release();
+		QVERIFY(gate->waitAll());
+		QCoreApplication::processEvents();
+		QCOMPARE(root->childCount(), 1);
+		QCOMPARE(root->child(0)->text(), QString("new"));
+	}
+
 	void oldFolderResultDoesNotReplaceNewRequest_data()
 	{
 		QTest::addColumn<bool>("old_failure");
@@ -146,7 +240,8 @@ private slots:
 		QVERIFY(prepareWindow(window));
 		QVERIFY(window.makeTreeCompletely());
 		window.openDir(ItemIdList(first));
-		QVERIFY(gate->entered.tryAcquire(1, 5000));
+		QTRY_VERIFY(gate->entered.available() >= 1);
+		gate->entered.acquire();
 		window.openDir(ItemIdList(second));
 		QTRY_COMPARE(window.fileitemmodel()->index(0, 0).data(PathRole).toString(), second + "/fresh.txt");
 		window.openDir(ItemIdList(first));
@@ -196,13 +291,15 @@ private slots:
 		for (int i = 0; i < list_count; ++i) {
 			QString path = files.filePath(QString::number(i));
 			window->openDir(ItemIdList(path));
+			QTRY_VERIFY(gate->entered.available() >= i + 1);
 		}
 		for (int i = 0; i < thumbnail_count; ++i) {
 			FileInfo2 info;
 			info.path = files.filePath(QString("thumb-%1").arg(i));
 			window->queryThumbnail(info);
 		}
-		QVERIFY(gate->entered.tryAcquire(list_count + thumbnail_count, 5000));
+		QTRY_VERIFY(gate->entered.available() >= list_count + thumbnail_count);
+		gate->entered.acquire(list_count + thumbnail_count);
 		ReleaseWatchdog watchdog(gate);
 		QElapsedTimer elapsed;
 		elapsed.start();
@@ -405,12 +502,16 @@ private slots:
 		MainWindow window;
 		QVERIFY(prepareWindow(window));
 		QVERIFY(window.makeTreeCompletely());
-		window.openDir(ItemIdList(files.filePath("p108searchneedle-one")));
 		auto *model = window.fileitemmodel();
+		QSignalSpy initial_about_reset(model, &QAbstractItemModel::modelAboutToBeReset);
+		QSignalSpy initial_reset(model, &QAbstractItemModel::modelReset);
 		auto *tree = window.findChild<FolderTreeView *>("treeView");
 		QVERIFY(tree);
 		QAbstractItemModelTester tester(model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+		window.openDir(ItemIdList(files.filePath("p108searchneedle-one")));
 		QTRY_COMPARE(model->rowCount(), 2);
+		QCOMPARE(initial_about_reset.count(), 1);
+		QCOMPARE(initial_reset.count(), 1);
 		window.setViewMode(thumbnail ? MainWindow::Thumbnail : MainWindow::List);
 		window.show();
 		window.activateWindow();
@@ -522,7 +623,7 @@ private slots:
 		QCOMPARE(global->incremental_search_text, query);
 		const int synchronous_resets = reset.count();
 		QTRY_VERIFY(reset.count() > synchronous_resets);
-		QCOMPARE(model->unfilteredCount(), 4);
+		QTRY_COMPARE(model->unfilteredCount(), 4);
 		QCOMPARE(model->rowCount(), zero_matches ? 0 : query.isEmpty() ? 4 : 3);
 		QVERIFY(hasStatus(window, query.isEmpty() ? "4 items" : zero_matches ? "0/4 items" : "3/4 items"));
 		if (!zero_matches) {
@@ -578,7 +679,8 @@ private slots:
 		QTest::keyClicks(view, "alpha");
 		QTest::keyClick(view, Qt::Key_F5);
 		auto *tree = window.findChild<FolderTreeView *>("treeView");
-		QVERIFY(tree && tree->currentItem());
+		QVERIFY(tree);
+		QTRY_VERIFY(tree->currentItem());
 		const auto result = folderResult(tree->currentItem());
 		// Deliver the saved directory result only after the intervening input.
 		QMetaObject::invokeMethod(&window, [&window, result] { window.onRefreshFileListDone(result); }, Qt::QueuedConnection);
@@ -684,7 +786,7 @@ private slots:
 			return QDir::cleanPath(QDir::fromNativeSeparators(path));
 		};
 		const QString expected_path = normalizedPath(destination.path());
-		QCOMPARE(normalizedPath(window.currentIIDL().path()), expected_path);
+		QTRY_COMPARE(normalizedPath(window.currentIIDL().path()), expected_path);
 		QVERIFY(tree->currentItem());
 		QCOMPARE(normalizedPath(tree->currentItem()->iidl().path()), expected_path);
 	}

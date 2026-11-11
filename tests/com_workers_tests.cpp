@@ -6,6 +6,7 @@
 #include "WindowsShellAPI.h"
 
 #include <QDir>
+#include <QFile>
 #include <QElapsedTimer>
 #include <QThread>
 #include <QTemporaryDir>
@@ -97,6 +98,25 @@ void CALLBACK idleTimerCallback(HWND, UINT, UINT_PTR timer, DWORD)
 class ComWorkerTests : public QObject {
 	Q_OBJECT
 private slots:
+	void shellFileInfoPreservesHiddenAttribute()
+	{
+		QTemporaryDir directory;
+		QVERIFY(directory.isValid());
+		for (bool folder : {false, true}) {
+			const QString path = directory.filePath(folder ? "hidden-folder" : "hidden-file.txt");
+			if (folder) QVERIFY(QDir().mkdir(path));
+			else { QFile file(path); QVERIFY(file.open(QIODevice::WriteOnly)); }
+			QVERIFY(SetFileAttributesW(reinterpret_cast<LPCWSTR>(path.utf16()), FILE_ATTRIBUTE_HIDDEN));
+			const auto identity = WindowsShellAPI::forCurrentThread().parseDisplayName(path);
+			QVERIFY(!identity.empty());
+			auto info = WindowsFileSystemProvider::getFileInfo(nullptr, identity);
+			QVERIFY(info);
+			QVERIFY(info.ishidden);
+			QCOMPARE(info.isdir, folder);
+			QVERIFY(SetFileAttributesW(reinterpret_cast<LPCWSTR>(path.utf16()), FILE_ATTRIBUTE_NORMAL));
+		}
+	}
+
 	void nestedInitializationIsBalanced()
 	{
 		struct Result {

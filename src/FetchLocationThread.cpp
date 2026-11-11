@@ -1,8 +1,8 @@
 #include "BasicFileSystemProvider.h"
 #include "FetchLocationThread.h"
-#include <QElapsedTimer>
 #include <mutex>
 #include <chrono>
+#include <vector>
 #ifdef Q_OS_WIN
 #include "WindowsCom.h"
 #include "WindowsShellAPI.h"
@@ -36,7 +36,7 @@ void FetchLocationThread::start()
 	auto state = state_;
 	auto input = data;
 	auto fetcher = fetcher_;
-	thread_.start([state, input = std::move(input), fetcher = std::move(fetcher)]() mutable {
+	pending_ = [state, input = std::move(input), fetcher = std::move(fetcher)]() mutable {
 		LocationData result;
 		QString error;
 		try {
@@ -51,20 +51,45 @@ void FetchLocationThread::start()
 		std::lock_guard<std::mutex> lock(state->mutex);
 		state->result = std::move(result);
 		state->error = std::move(error);
-	});
+	};
+	tryStart();
 	notification_timer_.start();
+}
+
+void FetchLocationThread::tryStart()
+{
+	if (!pending_) return;
+	// Futures become ready only after thread-local COM resources are released.
+	// Retain reservations even when a notifier is destroyed or restarted.
+	static std::mutex mutex;
+	static std::vector<std::shared_future<void>> active;
+	std::lock_guard<std::mutex> lock(mutex);
+	active.erase(std::remove_if(active.begin(), active.end(), [](auto const &future) {
+		return future.wait_for(std::chrono::seconds(0)) == std::future_status::ready;
+	}), active.end());
+	if (active.size() >= maximumConcurrentFetches) return;
+	thread_.start(std::move(pending_));
+	pending_ = {};
+	active.push_back(thread_.completion());
 }
 
 void FetchLocationThread::requestInterruption()
 {
 	notification_timer_.stop();
 	state_->interrupted = true;
+	pending_ = {};
 }
 
-bool FetchLocationThread::isRunning() const { return thread_.isRunning(); }
+bool FetchLocationThread::isRunning() const { return pending_ || thread_.isRunning(); }
 
 bool FetchLocationThread::wait(QDeadlineTimer deadline)
 {
+	while (pending_) {
+		tryStart();
+		if (!pending_) break;
+		if (deadline.hasExpired()) return false;
+		std::this_thread::sleep_for(std::chrono::milliseconds(1));
+	}
 	bool finished = thread_.wait(deadline);
 	if (finished) deliverResult();
 	return finished;
@@ -72,7 +97,9 @@ bool FetchLocationThread::wait(QDeadlineTimer deadline)
 
 void FetchLocationThread::deliverResult()
 {
+	tryStart();
 	if (!notification_timer_.isActive() || isRunning()) return;
+	thread_.wait(QDeadlineTimer(0));
 	notification_timer_.stop();
 	if (state_->interrupted) return;
 	QString error;
@@ -88,6 +115,16 @@ void FetchLocationThread::deliverResult()
 
 LocationData FetchLocationThread::fetch(LocationData data, StopRequested const &stop)
 {
+	return fetchImpl(std::move(data), stop, false);
+}
+
+LocationData FetchLocationThread::fetchDirectories(LocationData data, StopRequested const &stop)
+{
+	return fetchImpl(std::move(data), stop, true);
+}
+
+LocationData FetchLocationThread::fetchImpl(LocationData data, StopRequested const &stop, bool directories_only)
+{
 	if (stop()) return data;
 	if (!data.isDir()) throw QStringLiteral("This location is not a filesystem folder.");
 #ifdef Q_OS_WIN
@@ -96,8 +133,6 @@ LocationData FetchLocationThread::fetch(LocationData data, StopRequested const &
 		throw QStringLiteral("Cannot initialize Windows Shell for folder loading.");
 	}
 #endif
-	QElapsedTimer timer;
-	timer.start();
 	auto fs = createFileSystemProvider(data.iidl);
 	if (stop()) return data;
 	if (!fs->hasReadPermission()) {
@@ -110,14 +145,10 @@ LocationData FetchLocationThread::fetch(LocationData data, StopRequested const &
 #endif
 		if (stop()) return data;
 		auto info = fs->fileInfo();
+		if (directories_only && !info.isdir) continue;
 		if (info && !(info.isdir && (info.name == "." || info.name == ".."))) data.files.push_back(std::move(info));
 	}
 	MainWindow::sortFileInfoList(&data.files);
-	while (!stop() && timer.elapsed() < 300) {
-#ifdef Q_OS_WIN
-		if (!WindowsComApartment::pumpMessages()) break;
-#endif
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
-	}
+
 	return data;
 }

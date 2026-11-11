@@ -303,11 +303,11 @@ private slots:
 		if (initially_visible) QTest::keyClicks(tree_, "\\");
 		const ItemIdList target_id(files.filePath("target"));
 		const ItemIdList branch_id(files.filePath("target/branch"));
+		QTRY_VERIFY(tree_->itemFromIidl(target_id));
 		auto *target = tree_->itemFromIidl(target_id);
-		QVERIFY(target);
 		tree_->setExpanded(target, true);
+		QTRY_VERIFY(tree_->itemFromIidl(branch_id));
 		auto *branch = tree_->itemFromIidl(branch_id);
-		QVERIFY(branch);
 		tree_->setExpanded(branch, true);
 		tree_->setCurrentItem(zero_matches ? target : tree_->itemFromIidl(ItemIdList(files.filePath("before"))));
 		QVERIFY(tree_->currentItem());
@@ -324,7 +324,7 @@ private slots:
 		QVERIFY(tree_->isExpanded(root));
 		QVERIFY(tree_->isExpanded(tree_->itemFromIidl(target_id)));
 		QVERIFY(tree_->isExpanded(tree_->itemFromIidl(branch_id)));
-		QCOMPARE(bool(tree_->itemFromIidl(ItemIdList(files.filePath("target/.hidden")))), !initially_visible);
+		QTRY_COMPARE(bool(tree_->itemFromIidl(ItemIdList(files.filePath("target/.hidden")))), !initially_visible);
 		QTRY_COMPARE(window_->fileitemmodel()->rowCount(), initially_visible ? 2 : 4);
 		bool hidden_file = false;
 		for (int row = 0; row < window_->fileitemmodel()->rowCount(); ++row) {
@@ -352,9 +352,10 @@ private slots:
 		auto *root = addDirectoryRoot(directory.path());
 		window_->setFocusFolderTree();
 		QTest::keyClicks(tree_, "\\");
+		QTRY_VERIFY(tree_->itemFromIidl(ItemIdList(files.filePath(".hidden"))));
 		auto *hidden = tree_->itemFromIidl(ItemIdList(files.filePath(".hidden")));
-		QVERIFY(hidden);
 		tree_->setExpanded(hidden, true);
+		QTRY_VERIFY(tree_->itemFromIidl(ItemIdList(files.filePath(".hidden/inner"))));
 		tree_->setCurrentItem(root);
 		QTest::keyClicks(tree_, inside_hidden ? "inner" : ".hidden");
 		QCOMPARE(tree_->model()->rowCount(), 1);
@@ -366,7 +367,7 @@ private slots:
 		QVERIFY(tree_->currentItem());
 		QCOMPARE(tree_->currentItem()->iidl(), ItemIdList(directory.path()));
 		QCOMPARE(window_->currentLocation(), directory.path());
-		QVERIFY(!tree_->itemFromIidl(ItemIdList(files.filePath(".hidden"))));
+		QTRY_VERIFY(!tree_->itemFromIidl(ItemIdList(files.filePath(".hidden"))));
 		QVERIFY(!tree_->itemFromIidl(ItemIdList(files.filePath(".hidden/inner"))));
 		QTRY_COMPARE(window_->fileitemmodel()->rowCount(), 1);
 	}

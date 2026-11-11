@@ -10,6 +10,40 @@
 class WorkerShutdownTests : public QObject {
 	Q_OBJECT
 private slots:
+	void fetchConcurrencyIsBoundedAndCanceledQueueIsSkipped()
+	{
+		auto gate = std::make_shared<WorkerGate>();
+		ReleaseWorkers cleanup{gate};
+		std::vector<std::unique_ptr<FetchLocationThread>> blocked;
+		for (int i = 0; i < FetchLocationThread::maximumConcurrentFetches; ++i) {
+			auto worker = std::make_unique<FetchLocationThread>([gate](LocationData data, auto const &) {
+				gate->block();
+				return data;
+			});
+			worker->start();
+			blocked.push_back(std::move(worker));
+		}
+		QTRY_VERIFY(gate->entered.available() == FetchLocationThread::maximumConcurrentFetches);
+		std::atomic<int> obsolete_calls{0};
+		for (int i = 0; i < 20; ++i) {
+			FetchLocationThread obsolete([&](LocationData data, auto const &) { ++obsolete_calls; return data; });
+			obsolete.start();
+			QCoreApplication::processEvents();
+			obsolete.requestInterruption();
+		}
+		std::atomic<int> latest_calls{0};
+		FetchLocationThread latest([&](LocationData data, auto const &) { ++latest_calls; return data; });
+		QSignalSpy done(&latest, &FetchLocationThread::done);
+		latest.start();
+		QCoreApplication::processEvents();
+		QCOMPARE(latest_calls.load(), 0);
+		QCOMPARE(obsolete_calls.load(), 0);
+		gate->release.release(FetchLocationThread::maximumConcurrentFetches);
+		QTRY_COMPARE(done.count(), 1);
+		QCOMPARE(latest_calls.load(), 1);
+		QCOMPARE(obsolete_calls.load(), 0);
+	}
+
 	void threadLocalCleanupIsBounded()
 	{
 		struct ExitGate {
