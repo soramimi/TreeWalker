@@ -1,0 +1,18 @@
+# configure outputs. Keep handwritten binding Makefiles and distribution inputs.
+/*/Makefile
+/mecab/doc/Makefile
+/mecab/man/Makefile
+/mecab/src/Makefile
+/mecab/tests/Makefile
+/mecab/config.h
+/mecab/libtool
+/mecab/mecab-config
+/mecab/stamp-h.in
+
+# Libtool executable wrappers (not the corresponding .cpp sources)
+/mecab/src/mecab
+/mecab/src/mecab-cost-train
+/mecab/src/mecab-dict-gen
+/mecab/src/mecab-dict-index
+/mecab/src/mecab-system-eval
+/mecab/src/mecab-test-gen

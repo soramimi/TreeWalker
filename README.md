@@ -58,6 +58,13 @@ Depending on the platform and local Qt setup, you may prefer an out-of-source bu
 
 The application requires both `IncrementalSearchPlugin` and `FileTypePlugin`, built separately with the same Qt version and build configuration. See [AGENTS.md](AGENTS.md) for their projects and static library prerequisites, and [tests/README.md](tests/README.md) for regression testing.
 
+## Source Tree and Generated Files
+
+Build outputs, Autotools caches, configure results and Libtool executable wrappers are not versioned. MeCab retains its distribution `configure`, `Makefile.in`, macro/support files and Windows `Makefile.msvc`, so its documented direct configure and Windows builds remain possible. Oniguruma's `autogen.sh` and the plugin's `build-gcc.sh` regenerate its Autotools support scripts and generic `INSTALL` guide with `autoreconf -if`; Autoconf, Automake and Libtool are required for that workflow.
+
+Handwritten Makefiles, platform-specific configuration headers, dictionary source data and embedded dictionary C arrays remain build inputs. The raw `gen/magic.mgc` and `gen/magic.mgc.zst` copies duplicate the embedded C array and are omitted; the dictionary generation script produces working outputs in the ignored `lib/` directory. Generate dependencies before building the application and plugins as described above.
+
+
 ## File Operations and Loading
 
 In the detailed list and thumbnail view, press Enter or double-click a file to request opening it in its default application. Each operation first shows the filename and full path with **OK / Cancel**, defaulting to Cancel. Esc and closing the dialog also cancel. Enter opens only the current item; double-click opens only the clicked item, even with multiple items selected. Search and selection are preserved, and the saved file path is checked again after OK. Failed launch requests are reported in the status bar. Folder navigation and bookmark URL activation retain their existing behavior.
