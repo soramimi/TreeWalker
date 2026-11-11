@@ -147,3 +147,5 @@ RESOURCES += \
 
 SOURCES += $$PWD/src/FileTransfer.cpp
 HEADERS += $$PWD/src/FileTransfer.h
+SOURCES += $$PWD/src/TransferJob.cpp
+HEADERS += $$PWD/src/TransferJob.h

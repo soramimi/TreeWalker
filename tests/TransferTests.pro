@@ -5,3 +5,5 @@ TARGET = TransferTests
 INCLUDEPATH += .. ../src ../subprojects/IncrementalSearchPlugin/src
 SOURCES += transfer_tests.cpp ../src/FileTransfer.cpp
 HEADERS += ../src/FileTransfer.h
+SOURCES += ../src/TransferJob.cpp
+HEADERS += ../src/TransferJob.h ../src/WorkerThread.h
