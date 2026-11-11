@@ -9,6 +9,7 @@
 #include "FolderTreeView.h"
 #include "ThumbnailLoader.h"
 #include "FileTransfer.h"
+#include "TransferJob.h"
 
 namespace Ui {
 class MainWindow;
@@ -130,6 +131,8 @@ private:
 	void clearIconCache();
 	void copySelection(bool cut);
 	void pasteSelection();
+	void refreshAfterTransfer(filetransfer::Request const &request, filetransfer::Results const &results);
+	void refreshTransferredTrees();
 	void startTransfer(filetransfer::Request request, QString const &clipboard_token = {});
 private slots:
 	void onHotKey(size_t id);
@@ -201,6 +204,8 @@ protected:
 	bool acceptKeyEvent(QKeyEvent *event);
 	bool eventFilter(QObject *watched, QEvent *event);
 	void keyPressEvent(QKeyEvent *);
+signals:
+	void transferFinished();
 private slots:
 	void thumbnailReady(std::shared_ptr<ThumbnailLoader::Entiry> entity);
 	void on_action_view_hide_item_triggered();

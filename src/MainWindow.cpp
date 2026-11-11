@@ -94,6 +94,7 @@ struct MainWindow::Private {
 		: tree_fetcher(std::move(tree_fetcher)), fetcher(std::move(fetcher)), thumbnail_loader(std::move(thumbnail_load)) {}
 	FileItemModel file_item_model;
 	filetransfer::Job *transfer_job = nullptr;
+	QSet<QString> transfer_tree_refresh;
 	FetchLocationFunction tree_fetcher;
 	std::map<ItemIdList, std::shared_ptr<FetchLocationThread>> tree_fetches;
 	quint64 tree_generation = 0;
@@ -968,6 +969,7 @@ void MainWindow::setIncrementalSearchText(QString const &text)
 	} else if (ft == FilterTarget::ThumbnailViewSearch) {
 		ui->thumbnailView->setFilterText(text);
 	}
+	if (text.isEmpty() && !m->transfer_tree_refresh.isEmpty()) QTimer::singleShot(0, this, &MainWindow::refreshTransferredTrees);
 	if (text.isEmpty() && !m->deferred_trees.empty()) {
 		auto results = std::move(m->deferred_trees);
 		m->deferred_trees.clear();
@@ -1649,6 +1651,65 @@ void MainWindow::sortFileInfoList(std::vector<FileInfo2> *list)
 	});
 }
 
+void MainWindow::refreshTransferredTrees()
+{
+	if (isIncrementalSearching() && filtertarget() == FilterTarget::FolderTreeSearch) return;
+	auto paths = std::move(m->transfer_tree_refresh);
+	m->transfer_tree_refresh.clear();
+	auto find = [&](auto self, FolderTreeItem *node, QString const &path) -> FolderTreeItem * {
+		if (!node) return nullptr;
+		if (filetransfer::pathKey(node->data(0, PathRole).toString()) == filetransfer::pathKey(path)) return node;
+		for (int row = 0; row < node->childCount(); ++row) if (auto *match = self(self, node->child(row), path)) return match;
+		return nullptr;
+	};
+	for (auto const &path : paths) if (auto *node = find(find, m->my_computer_item, path)) fetchSubFolders(node, false);
+}
+
+void MainWindow::refreshAfterTransfer(filetransfer::Request const &request, filetransfer::Results const &results)
+{
+	m->thumbnail_loader.clearCache();
+	clearIconCache();
+	QString current = m->current_location.path;
+	QString relocated;
+	QStringList new_paths;
+	QSet<QString> affected;
+	for (auto const &result : results) {
+		affected.insert(filetransfer::pathKey(QFileInfo(result.source).absolutePath()));
+		if (!result.target.isEmpty()) affected.insert(filetransfer::pathKey(QFileInfo(result.target).absolutePath()));
+		if (result.outcome == filetransfer::Outcome::Completed) {
+			if (filetransfer::pathKey(QFileInfo(result.target).absolutePath()) == filetransfer::pathKey(current)) new_paths.push_back(result.target);
+			if (request.operation == filetransfer::Operation::Move && QFileInfo(result.target).isDir()
+				&& (filetransfer::pathKey(current) == filetransfer::pathKey(result.source) || filetransfer::pathKey(current).startsWith(filetransfer::pathKey(result.source) + '/'))) {
+				relocated = QDir(result.target).filePath(QDir(result.source).relativeFilePath(current));
+			}
+		}
+	}
+	m->transfer_tree_refresh.unite(affected);
+	if (!current.isEmpty() && !QFileInfo(current).isDir() && m->current_location.isDir()) {
+		if (relocated.isEmpty() || !QFileInfo(relocated).isDir()) {
+			relocated = QFileInfo(current).absolutePath();
+			while (!QFileInfo(relocated).isDir() && QFileInfo(relocated).absolutePath() != relocated) relocated = QFileInfo(relocated).absolutePath();
+		}
+		makeTreeCompletely(); openDir(ItemIdList(relocated));
+		return;
+	}
+	refreshTransferredTrees();
+	if (!m->current_location.isDir() || !affected.contains(filetransfer::pathKey(current))) return;
+	auto *view = viewmode() == List ? static_cast<QAbstractItemView *>(ui->tableView) : ui->thumbnailView;
+	Private::ReloadSelection selection;
+	selection.location = m->current_location;
+	selection.current = Private::ItemIdentity::fromIndex(view->currentIndex());
+	if (!new_paths.isEmpty()) {
+		for (auto const &path : new_paths) selection.selected.push_back({{}, path});
+		selection.current = {{}, new_paths.back()};
+	} else if (view->selectionModel()) {
+		for (auto const &index : view->selectionModel()->selectedRows()) selection.selected.push_back(Private::ItemIdentity::fromIndex(index));
+	}
+	updateFileView();
+	m->reload_selection = std::move(selection);
+	if (!m->location_loading) restoreReloadSelection();
+}
+
 void MainWindow::copySelection(bool cut)
 {
 	auto *view = qobject_cast<QAbstractItemView *>(QApplication::focusWidget());
@@ -1724,11 +1785,13 @@ void MainWindow::startTransfer(filetransfer::Request request, QString const &cli
 			if (remaining.isEmpty()) QApplication::clipboard()->clear();
 			else QApplication::clipboard()->setMimeData(filetransfer::clipboardData(remaining, filetransfer::Operation::Move, clipboard_token).release());
 		}
+		refreshAfterTransfer(request, results);
 		setStatusBarText(tr("Transfer: %1 completed, %2 skipped, %3 failed, %4 canceled.").arg(completed).arg(skipped).arg(failed).arg(canceled));
 		if (!details.isEmpty()) {
 			auto *message = new QMessageBox(QMessageBox::Warning, tr("Transfer results"), tr("Some items could not be transferred. Completed items remain at their destinations."), QMessageBox::Ok, this);
 			message->setDetailedText(details.join('\n')); message->setAttribute(Qt::WA_DeleteOnClose); message->show();
 		}
+		emit transferFinished();
 	});
 	progress->show();
 	job->start();

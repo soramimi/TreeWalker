@@ -116,6 +116,29 @@ private:
 	}
 
 private slots:
+	void transferRefreshTracksLocation()
+	{
+		QTemporaryDir root(QDir::currentPath() + "/treewalker-transfer-refresh-XXXXXX"); QDir dir(root.path());
+		QVERIFY(dir.mkpath("source/inner")); QVERIFY(dir.mkdir("target")); QVERIFY(dir.mkdir("elsewhere"));
+		QVERIFY(createFile(dir.filePath("source/inner/data.txt"))); QVERIFY(createFile(dir.filePath("elsewhere/other.txt")));
+		MainWindow window; QVERIFY(prepareWindow(window)); window.makeTreeCompletely(); window.openDir(ItemIdList(dir.filePath("elsewhere")));
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 1);
+		filetransfer::Request request{{dir.filePath("source")}, dir.filePath("target"), filetransfer::Operation::Move};
+		QVERIFY(QDir().rename(dir.filePath("source"), dir.filePath("target/source")));
+		filetransfer::Results results{{dir.filePath("source"), dir.filePath("target/source"), filetransfer::Outcome::Completed, {}}};
+		window.refreshAfterTransfer(request, results);
+		QCOMPARE(QDir::fromNativeSeparators(window.currentIIDL().path()), QDir::fromNativeSeparators(dir.filePath("elsewhere")));
+		window.openDir(ItemIdList(dir.filePath("target/source/inner")));
+		QTRY_COMPARE(QDir::fromNativeSeparators(window.currentIIDL().path()), QDir::fromNativeSeparators(dir.filePath("target/source/inner")));
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 1);
+		QVERIFY(QDir().rename(dir.filePath("target/source"), dir.filePath("source")));
+		request.sources = {dir.filePath("target/source")}; request.destination = root.path();
+		results = {{dir.filePath("target/source"), dir.filePath("source"), filetransfer::Outcome::Completed, {}}};
+		window.refreshAfterTransfer(request, results);
+		QTRY_COMPARE(QDir::fromNativeSeparators(window.currentIIDL().path()), QDir::fromNativeSeparators(dir.filePath("source/inner")));
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 1);
+	}
+
 	void transferShortcutsAcrossViews_data()
 	{
 		QTest::addColumn<int>("view"); QTest::addColumn<bool>("cut");
@@ -153,10 +176,13 @@ private slots:
 		QTRY_COMPARE(QDir::fromNativeSeparators(window.currentIIDL().path()), QDir::fromNativeSeparators(dir.filePath("target")));
 		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 0);
 		widget->setFocus(); QTRY_VERIFY(widget->hasFocus());
+		QSignalSpy finished(&window, &MainWindow::transferFinished);
 		QTest::keyClick(widget, Qt::Key_V, Qt::ControlModifier);
 		QString copied = dir.filePath(view == 0 ? "target/source/data.txt" : "target/data.txt");
 		QTRY_VERIFY(QFileInfo::exists(copied));
-		QTRY_VERIFY(hasStatus(window, "Transfer: 1 completed, 0 skipped, 0 failed, 0 canceled."));
+		QTRY_COMPARE(finished.count(), 1);
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 1);
+		if (view != 0) QTRY_COMPARE(widget->currentIndex().data(PathRole).toString(), copied);
 		QCOMPARE(QFileInfo::exists(dir.filePath("source/data.txt")), !cut);
 		if (cut) QVERIFY(filetransfer::clipboardToken(QApplication::clipboard()->mimeData()).isEmpty());
 	}
