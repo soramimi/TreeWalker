@@ -9,6 +9,7 @@ class QPainter;
 class QWidget;
 class QDateTime;
 class QContextMenuEvent;
+class QMenuBar;
 
 namespace misc {
 
@@ -22,6 +23,8 @@ QPoint contextMenuPos(QWidget *w, QContextMenuEvent *e);
 QString abbrevBranchName(QString const &name);
 QString makeProxyServerURL(QString text);
 QString collapseWhitespace(QString const &source);
+
+void cancelMenu(QMenuBar *menubar);
 
 } // namespace misc
 

@@ -5,6 +5,7 @@
 #include <QPainter>
 #include <QWidget>
 #include <QContextMenuEvent>
+#include <QMenuBar>
 
 /**
  * @brief 文字列を単語に分割する。
@@ -243,3 +244,11 @@ QString misc::collapseWhitespace(const QString &source)
 	return QString(p);
 }
 
+void misc::cancelMenu(QMenuBar *menubar)
+{
+	if (QAction *action = menubar->activeAction()) {
+		if (QMenu *menu = action->menu()) {
+			menu->close();
+		}
+	}
+}

@@ -8,6 +8,7 @@
 #include "SettingsDialog.h"
 #include "StatusLabel.h"
 #include "common/joinpath.h"
+#include "common/qmisc.h"
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QDir>
@@ -752,7 +753,7 @@ void MainWindow::refreshFileList2(LocationData const &loc, bool force)
 
 	if (m->focus_widget == ui->treeView || m->focus_widget == ui->tableView || m->focus_widget == ui->thumbnailView) {
 		m->focus_widget->setFocus();
-		m->focus_widget = nullptr;
+		// m->focus_widget = nullptr;
 	}
 	
 	switch (viewmode()) {
@@ -1275,6 +1276,7 @@ bool MainWindow::appendCharToFilterText(QString const &add, MainWindow::FilterTa
 void MainWindow::setFocusFolderTree()
 {
 	setAddressBarVisible(false);
+	m->focus_widget = ui->treeView;
 	ui->treeView->setFocus();
 }
 
@@ -1387,7 +1389,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 					setFocusFolderTree();
 					break;
 				} else {
+					misc::cancelMenu(ui->menuBar);
 					setAddressBarVisible(false);
+					if (m->focus_widget) {
+						m->focus_widget->setFocus();
+					}
 				}
 				return true;
 			case Qt::Key_Home:
@@ -2260,7 +2266,7 @@ void MainWindow::setAddressBarVisible(bool visible)
 		ui->frame_tool_bar->setVisible(false);
 		if (m->focus_widget) {
 			m->focus_widget->setFocus();
-			m->focus_widget = nullptr;
+			// m->focus_widget = nullptr;
 		} else {
 			setFocusFolderTree();
 		}
