@@ -9,3 +9,6 @@ subprojects/IncrementalSearchPlugin/_build/
 _build/
 .vscode/
 subprojects/IncrementalSearchPlugin/_build/
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/.libs/
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/.libs/
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/.libs/

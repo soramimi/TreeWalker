@@ -2,7 +2,7 @@
 
 # libtool - Provide generalized library-building support services.
 # Generated automatically by config.status (mecab) 0.996
-# Libtool was configured on host mary:
+# Libtool was configured on host alice:
 # NOTE: Changes made to this file will be lost: look at ltmain.sh.
 #
 #   Copyright (C) 1996, 1997, 1998, 1999, 2000, 2001, 2003, 2004, 2005,
@@ -278,7 +278,7 @@ hardcode_into_libs=yes
 sys_lib_search_path_spec="/usr/lib/gcc/x86_64-pc-linux-gnu/16 /usr/lib /lib "
 
 # Run-time system search path for libraries.
-sys_lib_dlsearch_path_spec="/lib /usr/lib /opt/cuda/lib64 /opt/cuda/nvvm/lib64 /opt/intel/oneapi/mkl/latest/lib/intel64 /opt/intel/oneapi/compiler/2026.0/lib/ /opt/intel/oneapi/lib/intel64 /opt/intel/oneapi/compiler/latest/linux/compiler/lib/intel64 /opt/cuda/lib /usr/lib/libfakeroot "
+sys_lib_dlsearch_path_spec="/lib /usr/lib /opt/cuda/lib64 /opt/cuda/nvvm/lib64 /opt/intel/oneapi/compiler/latest/linux/lib /opt/intel/oneapi/compiler/latest/linux/lib/x64 /opt/intel/oneapi/compiler/latest/linux/lib /opt/intel/oneapi/compiler/latest/linux/lib/x64 /opt/intel/oneapi/compiler/latest/lib /opt/intel/oneapi/compiler/latest/linux/lib /opt/intel/oneapi/compiler/latest/linux/lib/x64 /opt/intel/oneapi/mkl/latest/lib/intel64 /opt/intel/oneapi/compiler/2026.0/lib/ /opt/intel/oneapi/lib/intel64 /opt/intel/oneapi/compiler/latest/linux/compiler/lib/intel64 /usr/lib32 /opt/cuda/lib /usr/lib/opencollada /opt/picoscope/lib /usr/lib/libfakeroot "
 
 # Whether dlopen is supported.
 dlopen_support=unknown
