@@ -21,3 +21,5 @@ HEADERS += $$PWD/tests/worker_test_support.h
 win32:SOURCES += $$PWD/tests/network_discovery_tests.cpp
 win32:SOURCES += $$PWD/tests/com_workers_tests.cpp
 win32:LIBS += -lshell32
+
+SOURCES += $$PWD/tests/file_open_tests.cpp

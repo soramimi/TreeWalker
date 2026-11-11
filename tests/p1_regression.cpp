@@ -36,6 +36,7 @@
 
 ApplicationGlobal *global = nullptr;
 
+int runFileOpenTests(int argc, char **argv);
 int runModelNotificationTests(int argc, char **argv);
 int runAddressInputTests(int argc, char **argv);
 int runSpecialLocationTests(int argc, char **argv);
@@ -932,6 +933,7 @@ int main(int argc, char **argv)
 	qRegisterMetaType<FolderTreeItem *>("FolderTreeItem*");
 	P1RegressionTest test;
 	int result = QTest::qExec(&test, argc, argv);
+	result |= runFileOpenTests(argc, argv);
 	result |= runModelNotificationTests(argc, argv);
 	result |= runAddressInputTests(argc, argv);
 	result |= runSpecialLocationTests(argc, argv);

@@ -14,6 +14,7 @@ At the moment, TreeWalker includes:
 - A folder tree and file list style navigation model
 - Two file presentation modes: detailed list view and thumbnail view
 - Basic keyboard-driven interaction for navigation and actions
+- File opening in the default application after an OK / Cancel confirmation
 - Hidden file toggling
 - Asynchronous folder tree and file list loading, with up to four concurrent enumeration workers
 - File and folder copying and moving with Ctrl+C / Ctrl+X / Ctrl+V in all three views
@@ -58,6 +59,8 @@ Depending on the platform and local Qt setup, you may prefer an out-of-source bu
 The application requires both `IncrementalSearchPlugin` and `FileTypePlugin`, built separately with the same Qt version and build configuration. See [AGENTS.md](AGENTS.md) for their projects and static library prerequisites, and [tests/README.md](tests/README.md) for regression testing.
 
 ## File Operations and Loading
+
+In the detailed list and thumbnail view, press Enter or double-click a file to request opening it in its default application. Each operation first shows the filename and full path with **OK / Cancel**, defaulting to Cancel. Esc and closing the dialog also cancel. Enter opens only the current item; double-click opens only the clicked item, even with multiple items selected. Search and selection are preserved, and the saved file path is checked again after OK. Failed launch requests are reported in the status bar. Folder navigation and bookmark URL activation retain their existing behavior.
 
 Press F2 while the folder tree, detailed list, or thumbnail view has focus to rename the selected filesystem item. Use **Create folder** in the detailed list context menu to add a folder to the current filesystem directory. Invalid names and existing destinations are rejected; failed operations report an error in the status bar.
 

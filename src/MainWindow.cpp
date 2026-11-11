@@ -1007,7 +1007,8 @@ void MainWindow::openTableItem(QModelIndex const &index)
 	bool bookmark_list = fileitemmodel()->kind_ == Kind::ChromeBookmark;
 	if (kind == Kind::Placeholder || (path.isEmpty() && url.isEmpty() && iidl.empty())) return;
 	// Confirmation must not reset the filter or change the selected row.
-	if (!bookmark_list && !path.isEmpty() && QFileInfo(path).isFile()) {
+	if (!bookmark_list && !path.isEmpty()
+		&& (QFileInfo(path).isFile() || (kind == Kind::File && !QFileInfo(path).isDir()))) {
 		openFileWithConfirmation(path);
 		return;
 	}

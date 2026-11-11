@@ -67,6 +67,7 @@ class MainWindow : public QMainWindow {
 	friend class MyApplication;
 	friend class FetchLocationThread;
 	friend class P1RegressionTest;
+	friend class FileOpenTests;
 	friend class SpecialLocationTests;
 private:
 	struct Private;
