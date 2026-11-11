@@ -511,16 +511,13 @@ private slots:
 		QCOMPARE(window.fileitemmodel()->rowCount(), 1);
 		QCOMPARE(window.fileitemmodel()->data(view->currentIndex(), PathRole).toString(), files.filePath("b.txt"));
 
-		if (enter) {
-			window.show();
-			window.activateWindow();
-			view->setFocus();
-			QCoreApplication::processEvents();
-			QVERIFY(view->hasFocus());
-			QKeyEvent event(QEvent::KeyPress, Qt::Key_Return, Qt::NoModifier);
-			window.keyPressEvent(&event);
-		} else {
-			window.openTableItem(view->currentIndex());
+		window.show(); window.activateWindow(); view->setFocus();
+		QCoreApplication::processEvents(); QVERIFY(view->hasFocus());
+		if (enter) QTest::keyClick(view, Qt::Key_Return);
+		else {
+			QPoint position = view->visualRect(view->currentIndex()).center();
+			QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, position);
+			QTest::mouseDClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, position);
 		}
 
 		QCOMPARE(opened_urls_.size(), 1);

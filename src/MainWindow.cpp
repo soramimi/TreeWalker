@@ -255,9 +255,8 @@ MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, Thumbnail
 		on_treeView_itemExpanded(item);
 	});
 
-	connect(ui->tableView, &FileTableView::itemDoubleClicked, [&](QModelIndex const &index){
-		openTableItem(index);
-	});
+	connect(ui->tableView, &FileTableView::itemDoubleClicked, this, &MainWindow::openTableItem);
+	connect(ui->thumbnailView, &QAbstractItemView::doubleClicked, this, &MainWindow::openTableItem);
 
 #ifdef Q_OS_WIN
 	m->network_changed_timer.setSingleShot(true);
@@ -1287,6 +1286,11 @@ bool MainWindow::eventFilter(QObject *watched, QEvent *event)
 
 			QWidget *focuswidget = QApplication::focusWidget();
 			const bool viewFocused = focuswidget == ui->treeView || focuswidget == ui->tableView || focuswidget == ui->thumbnailView;
+			if (enter && (focuswidget == ui->tableView || focuswidget == ui->thumbnailView)
+				&& !(e->modifiers() & ~Qt::KeypadModifier)) {
+				if (!e->isAutoRepeat()) openTableItem(static_cast<QAbstractItemView *>(focuswidget)->currentIndex());
+				return true;
+			}
 			if (viewFocused && e->matches(QKeySequence::Copy)) { copySelection(false); return true; }
 			if (viewFocused && e->matches(QKeySequence::Cut)) { copySelection(true); return true; }
 			if (viewFocused && e->matches(QKeySequence::Paste)) { pasteSelection(); return true; }
