@@ -23,6 +23,8 @@
 #include "RenameDialog.h"
 #include <QLineEdit>
 #include <QClipboard>
+#include <QMessageBox>
+#include <QAbstractButton>
 #include "TransferClipboard.h"
 #include "worker_test_support.h"
 #include "ThumbnailView.h"
@@ -116,6 +118,28 @@ private:
 	}
 
 private slots:
+	void partialCutRetainsOnlyUnmovedItems()
+	{
+		struct Restore {
+			std::unique_ptr<QMimeData> data = std::make_unique<QMimeData>();
+			Restore() { auto *mime = QApplication::clipboard()->mimeData(); if (mime) for (auto const &format : mime->formats()) data->setData(format, mime->data(format)); }
+			~Restore() { QApplication::clipboard()->setMimeData(data.release()); }
+		} restore;
+		QTemporaryDir root(QDir::currentPath() + "/treewalker-partial-cut-XXXXXX"); QDir dir(root.path()); QVERIFY(dir.mkdir("source")); QVERIFY(dir.mkdir("target"));
+		QVERIFY(createFile(dir.filePath("source/a"))); QVERIFY(createFile(dir.filePath("source/b"))); QVERIFY(createFile(dir.filePath("target/b")));
+		MainWindow window; QVERIFY(prepareWindow(window)); window.makeTreeCompletely(); window.openDir(ItemIdList(dir.filePath("source")));
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 2);
+		filetransfer::Request request{{dir.filePath("source/a"), dir.filePath("source/b")}, dir.filePath("target"), filetransfer::Operation::Move};
+		QApplication::clipboard()->setMimeData(filetransfer::clipboardData(request.sources, request.operation, "partial-cut").release());
+		QTimer timer; connect(&timer, &QTimer::timeout, [&] { auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()); if (box) for (auto *button : box->buttons()) if (button->text() == "Skip") { button->click(); return; } }); timer.start(10);
+		QSignalSpy done(&window, &MainWindow::transferFinished);
+		window.startTransfer(request, "partial-cut");
+		QTRY_COMPARE(done.count(), 1);
+		QVERIFY(!QFileInfo::exists(dir.filePath("source/a"))); QVERIFY(QFileInfo::exists(dir.filePath("source/b"))); QVERIFY(QFileInfo::exists(dir.filePath("target/a")));
+		auto remaining = filetransfer::clipboardRequest(QApplication::clipboard()->mimeData()); QCOMPARE(remaining.sources, QStringList{dir.filePath("source/b")}); QCOMPARE(remaining.operation, filetransfer::Operation::Move);
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 1);
+	}
+
 	void transferRefreshTracksLocation()
 	{
 		QTemporaryDir root(QDir::currentPath() + "/treewalker-transfer-refresh-XXXXXX"); QDir dir(root.path());
@@ -178,6 +202,8 @@ private slots:
 		widget->setFocus(); QTRY_VERIFY(widget->hasFocus());
 		QSignalSpy finished(&window, &MainWindow::transferFinished);
 		QTest::keyClick(widget, Qt::Key_V, Qt::ControlModifier);
+		const bool clipboard_replaced = cut && view == 2;
+		if (clipboard_replaced) QApplication::clipboard()->setText("new clipboard contents");
 		QString copied = dir.filePath(view == 0 ? "target/source/data.txt" : "target/data.txt");
 		QTRY_VERIFY(QFileInfo::exists(copied));
 		QTRY_COMPARE(finished.count(), 1);
@@ -185,6 +211,7 @@ private slots:
 		if (view != 0) QTRY_COMPARE(widget->currentIndex().data(PathRole).toString(), copied);
 		QCOMPARE(QFileInfo::exists(dir.filePath("source/data.txt")), !cut);
 		if (cut) QVERIFY(filetransfer::clipboardToken(QApplication::clipboard()->mimeData()).isEmpty());
+		if (clipboard_replaced) QCOMPARE(QApplication::clipboard()->text(), QString("new clipboard contents"));
 	}
 
 	void providerDupKeepsDestination()

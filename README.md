@@ -16,6 +16,8 @@ At the moment, TreeWalker includes:
 - Basic keyboard-driven interaction for navigation and actions
 - Hidden file toggling
 - Asynchronous folder tree and file list loading, with up to four concurrent enumeration workers
+- File and folder copying and moving with Ctrl+C / Ctrl+X / Ctrl+V in all three views
+- Drag-and-drop transfers with a mandatory Move / Copy / Cancel prompt
 - File and folder renaming with F2, including from thumbnail view
 - Folder creation from the file list context menu, with name validation and conflict reporting
 - A small settings framework
@@ -58,6 +60,16 @@ The application requires both `IncrementalSearchPlugin` and `FileTypePlugin`, bu
 ## File Operations and Loading
 
 Press F2 while the folder tree, detailed list, or thumbnail view has focus to rename the selected filesystem item. Use **Create folder** in the detailed list context menu to add a folder to the current filesystem directory. Invalid names and existing destinations are rejected; failed operations report an error in the status bar.
+
+Ctrl+C and Ctrl+X put the selected filesystem items on the clipboard. Ctrl+V pastes into the selected tree folder or the directory displayed in the detailed/thumbnail view. Cutting does not change files until paste succeeds. Text editors retain their normal clipboard shortcuts.
+
+Dragging onto a folder transfers into that folder; dropping on the detailed/thumbnail background transfers into the displayed directory. Tree background and ordinary file rows reject drops. Every valid drop asks **Move / Copy / Cancel**, with Cancel as the default. Filesystem location and Ctrl/Shift never automatically select an operation. Unsupported actions offered by an external drag source are refused after confirmation, rather than substituted with another operation.
+
+Transfers run in a separate background job, one at a time, with progress and cancellation. Existing destinations require Skip, Different name, Replace, or Cancel; replacing a folder replaces the whole folder rather than merging it. Completed items remain after cancellation or partial failure. Failures report recovery paths if temporary output or the original destination backup could not be removed. Source/destination changes detected during copying stop the affected operation.
+
+Standard file URL clipboard formats support external file managers. Incoming external drops are supported when the source permits the selected operation and a copy acknowledgment, so only TreeWalker handles source deletion. Outgoing drags expose an application-private format and are intentionally limited to TreeWalker: external targets must not transfer files without TreeWalker's mandatory confirmation. Linux interoperability has been tested with Thunar; Explorer integration still needs verification on Windows.
+
+Copies preserve contents, links, permissions and modification times where supported; Windows copies also preserve common file attributes. Full ACLs, ownership, extended attributes and sparse layout are not guaranteed. Unsupported special files and non-symbolic reparse points are rejected. Source links are copied as links and are not recursively followed.
 
 Folder enumeration runs in the background. Tree children are inspected when expanded, and unchanged nodes retain their selection and expansion state. Navigation and refresh discard obsolete results; refresh preserves the file search and selected items. Tree and file list requests share a limit of four running workers, including interrupted requests whose underlying I/O has not returned. New requests wait for a slot when all four workers are occupied.
 

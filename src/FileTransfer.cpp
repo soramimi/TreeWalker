@@ -38,7 +38,7 @@ QString validate(Request *request)
 	QSet<QString> seen;
 	for (QString const &path : request->sources) {
 		QFileInfo info(path);
-		if (!info.isAbsolute() || (!info.exists() && !info.isSymLink()) || info.isRoot()) return QObject::tr("Invalid source: %1").arg(path);
+		if (!info.isAbsolute() || (!info.exists() && !info.isSymLink()) || (!info.isFile() && !info.isDir() && !info.isSymLink()) || info.isRoot()) return QObject::tr("Invalid source: %1").arg(path);
 		QString source = entryPath(info);
 		if (info.dir().canonicalPath().isEmpty()) return QObject::tr("Cannot resolve source: %1").arg(path);
 		if (seen.contains(pathKey(source))) continue;
@@ -69,7 +69,7 @@ QStringList selectedPaths(QAbstractItemView const *view)
 		if (kind == Kind::ChromeBookmark || kind == Kind::Placeholder) return {};
 		const QString path = index.data(PathRole).toString();
 		QFileInfo info(path);
-		if (path.isEmpty() || !info.isAbsolute() || (!info.exists() && !info.isSymLink()) || info.isRoot()) return {};
+		if (path.isEmpty() || !info.isAbsolute() || (!info.exists() && !info.isSymLink()) || (!info.isFile() && !info.isDir() && !info.isSymLink()) || info.isRoot()) return {};
 		paths.push_back(info.absoluteFilePath());
 	}
 	return paths;

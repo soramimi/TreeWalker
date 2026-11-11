@@ -218,8 +218,8 @@ MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, Thumbnail
 	ui->setupUi(this);
 	for (auto *view : {static_cast<QAbstractItemView *>(ui->treeView), static_cast<QAbstractItemView *>(ui->tableView), static_cast<QAbstractItemView *>(ui->thumbnailView)}) {
 		auto *controller = new filetransfer::DragController(view, view == ui->treeView, [this] { return m->current_location.path; }, [this](filetransfer::Request request, Qt::DropActions allowed) {
-			if (m->transfer_job) { setStatusBarText(tr("Wait for the current transfer to finish.")); return false; }
 			if (!filetransfer::confirmDrop(&request, allowed, this)) return false;
+			if (m->transfer_job) { setStatusBarText(tr("Wait for the current transfer to finish.")); return false; }
 			startTransfer(request);
 			return m->transfer_job != nullptr;
 		});
@@ -1778,7 +1778,7 @@ void MainWindow::startTransfer(filetransfer::Request request, QString const &cli
 			case filetransfer::Outcome::Failed: ++failed; break;
 			case filetransfer::Outcome::Canceled: ++canceled; break;
 			}
-			if (item.outcome != filetransfer::Outcome::Completed) remaining.push_back(item.source);
+			if (item.outcome != filetransfer::Outcome::Completed && (QFileInfo::exists(item.source) || QFileInfo(item.source).isSymLink())) remaining.push_back(item.source);
 			if (!item.error.isEmpty()) details.push_back(item.source + ": " + item.error);
 		}
 		if (request.operation == filetransfer::Operation::Move && !clipboard_token.isEmpty()

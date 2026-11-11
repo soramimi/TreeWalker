@@ -13,6 +13,7 @@
 #include <fcntl.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #endif
 
 namespace filetransfer {
@@ -45,18 +46,52 @@ struct Snapshot {
 	std::uintmax_t size;
 	fs::file_time_type time;
 	fs::path link;
+	fs::perms permissions;
+	quint64 device, identity;
 };
 Snapshot snapshot(fs::path const &path)
 {
-	auto type = fs::symlink_status(path).type();
+	auto status = fs::symlink_status(path);
+	auto type = status.type();
+	quint64 device = 0, identity = 0;
+#ifdef Q_OS_WIN
+	HANDLE handle = CreateFileW(path.c_str(), 0, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+	if (handle == INVALID_HANDLE_VALUE) fail(QObject::tr("Cannot identify filesystem item."));
+	BY_HANDLE_FILE_INFORMATION info{};
+	bool identified = GetFileInformationByHandle(handle, &info);
+	CloseHandle(handle);
+	if (!identified) fail(QObject::tr("Cannot identify filesystem item."));
+	device = info.dwVolumeSerialNumber; identity = (quint64(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+#else
+	struct stat info{};
+	if (::lstat(path.c_str(), &info) != 0) fail(QObject::tr("Cannot identify filesystem item."));
+	device = info.st_dev; identity = info.st_ino;
+#endif
 	return {path, type, type == fs::file_type::regular ? fs::file_size(path) : 0,
 		type == fs::file_type::symlink ? fs::file_time_type{} : fs::last_write_time(path),
-		type == fs::file_type::symlink ? fs::read_symlink(path) : fs::path{}};
+		type == fs::file_type::symlink ? fs::read_symlink(path) : fs::path{}, status.permissions(), device, identity};
 }
 bool unchanged(Snapshot const &a)
 {
 	auto b = snapshot(a.path);
-	return a.type == b.type && a.size == b.size && a.time == b.time && a.link == b.link;
+	return a.type == b.type && a.size == b.size && a.time == b.time && a.link == b.link && a.permissions == b.permissions && a.device == b.device && a.identity == b.identity;
+}
+
+void recordTree(fs::path const &path, std::vector<Snapshot> &entries, Callbacks const &callbacks)
+{
+	check(callbacks);
+	auto entry = snapshot(path);
+	entries.push_back(entry);
+	if (entry.type == fs::file_type::directory) for (auto const &child : fs::directory_iterator(path)) recordTree(child.path(), entries, callbacks);
+}
+bool unchangedAt(std::vector<Snapshot> const &entries, fs::path const &original, fs::path const &current)
+{
+	for (auto entry : entries) {
+		auto relative = entry.path.lexically_relative(original);
+		entry.path = relative == "." ? current : current / relative;
+		if (!unchanged(entry)) return false;
+	}
+	return true;
 }
 
 void copyEntry(fs::path const &source, fs::path const &target, Callbacks const &callbacks, qint64 &bytes, std::vector<Snapshot> &manifest)
@@ -91,6 +126,12 @@ void copyEntry(fs::path const &source, fs::path const &target, Callbacks const &
 		fs::permissions(target, fs::status(source).permissions());
 		fs::last_write_time(target, before.time);
 	} else fail(QObject::tr("Unsupported filesystem item: %1").arg(text(source)));
+#ifdef Q_OS_WIN
+	if (before.type != fs::file_type::symlink) {
+		DWORD preserved = attributes & (FILE_ATTRIBUTE_READONLY | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM | FILE_ATTRIBUTE_ARCHIVE | FILE_ATTRIBUTE_NOT_CONTENT_INDEXED);
+		if (!SetFileAttributesW(target.c_str(), preserved ? preserved : FILE_ATTRIBUTE_NORMAL)) fail(QObject::tr("Cannot preserve file attributes."));
+	}
+#endif
 	if (!unchanged(before)) fail(QObject::tr("Source changed during transfer: %1").arg(text(source)));
 	manifest.push_back(before);
 }
@@ -107,19 +148,27 @@ Results execute(Request request, Callbacks const &callbacks)
 		ItemResult result{source, QDir(request.destination).filePath(QFileInfo(source).fileName()), Outcome::Failed, {}};
 		fs::path container, stage, backup;
 		bool installed = false;
+		std::vector<Snapshot> destination_manifest;
 		try {
 			if (canceled_all) throw Canceled{};
 			check(callbacks);
 			Request current{{source}, request.destination, request.operation};
 			error = validate(&current);
 			if (!error.isEmpty()) fail(error);
+#ifdef Q_OS_WIN
+			DWORD attributes = GetFileAttributesW(native(source).c_str());
+			if ((attributes & FILE_ATTRIBUTE_REPARSE_POINT) && fs::symlink_status(native(source)).type() != fs::file_type::symlink) fail(QObject::tr("Unsupported reparse point."));
+#endif
+			if (pathKey(current.destination) != pathKey(request.destination)) fail(QObject::tr("Destination changed before transfer."));
 			bool replace = false;
 			while (entryExists(native(result.target))) {
+				std::vector<Snapshot> observed;
+				recordTree(native(result.target), observed, callbacks);
 				Decision decision = callbacks.conflict ? callbacks.conflict(source, result.target, QFileInfo(result.target).isDir()) : Decision{Choice::Skip, {}};
 				check(callbacks);
 				if (decision.choice == Choice::Cancel) throw Canceled{};
 				if (decision.choice == Choice::Skip) { result.outcome = Outcome::Skipped; break; }
-				if (decision.choice == Choice::Replace) { replace = true; break; }
+				if (decision.choice == Choice::Replace) { replace = true; destination_manifest = std::move(observed); break; }
 				QString name = decision.name;
 				if (name.isEmpty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') || name.contains(QChar(0))) fail(QObject::tr("Invalid destination name."));
 				result.target = QDir(request.destination).filePath(name);
@@ -138,12 +187,14 @@ Results execute(Request request, Callbacks const &callbacks)
 			}
 			container = native(temporary(request.destination));
 			if (!fs::create_directory(container)) { container.clear(); fail(QObject::tr("Cannot reserve temporary output.")); }
+			fs::permissions(container, fs::perms::owner_all);
 			stage = container / "payload";
 			std::vector<Snapshot> manifest;
 			copyEntry(native(source), stage, callbacks, bytes, manifest);
 			check(callbacks);
 			for (auto const &entry : manifest) if (!unchanged(entry)) fail(QObject::tr("Source changed during transfer."));
 			if (replace && entryExists(native(result.target))) {
+				if (!unchangedAt(destination_manifest, native(result.target), native(result.target))) fail(QObject::tr("Destination changed after the replacement prompt; it was retained."));
 				auto candidate = native(temporary(request.destination));
 				if (!renameExclusive(native(result.target), candidate)) fail(QObject::tr("Cannot preserve the existing destination."));
 				backup = candidate;
@@ -154,13 +205,16 @@ Results execute(Request request, Callbacks const &callbacks)
 				for (auto const &entry : manifest) if (!unchanged(entry)) fail(QObject::tr("Copy completed, but source changed; source was retained."));
 				fs::remove_all(native(source));
 			}
-			if (!backup.empty()) { fs::remove_all(backup); backup.clear(); }
+			if (!backup.empty()) {
+				if (!unchangedAt(destination_manifest, native(result.target), backup)) fail(QObject::tr("Original destination changed during replacement; backup was retained."));
+				fs::remove_all(backup); backup.clear();
+			}
 			result.outcome = Outcome::Completed;
 		} catch (Canceled const &) {
 			result.outcome = Outcome::Canceled;
 			canceled_all = true;
 		} catch (std::exception const &exception) {
-			result.error = QString::fromUtf8(exception.what());
+			result.error = (installed ? QObject::tr("Destination was installed; source removal or cleanup may be incomplete. ") : QString()) + QString::fromUtf8(exception.what());
 		}
 		std::error_code cleanup_error;
 		if (!container.empty()) fs::remove_all(container, cleanup_error);

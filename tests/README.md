@@ -73,3 +73,56 @@ python tests/empty_shell_read_permission.py --compiler C:/Qt/Tools/mingw1310_64/
 ```
 
 本体の `WindowsFileSystemProvider::hasReadPermission()` を実行時に抽出し、SDK の偽 `IShellFolder` と `IEnumIDList` に接続する。`S_FALSE / NULL`、空の列挙子、アクセス拒否など7ケースを確認する。生成するソースと実行ファイルは一時ディレクトリに置き、自動削除する。
+
+## コピー・移動・クリップボード・ドラッグ＆ドロップ
+
+共通バックエンドと Qt のドロップ確認は、本体プラグインに依存しない専用テストでも検証する。
+
+```bash
+mkdir -p build/transfer-tests
+cd build/transfer-tests
+qmake6 ../../tests/TransferTests.pro
+make -j4
+./TransferTests -platform offscreen
+```
+
+`transfer_tests.cpp` はコピー、移動、再帰フォルダー、競合のスキップ／別名／置換、途中キャンセル、競合待ち中のキャンセル、元や転送先の途中変更、リンク循環、権限エラー、部分失敗、MIME 形式を検証する。Linux の `/dev/shm` が別ファイルシステムで書き込み可能なら、実際の別ファイルシステム間の移動も実行する。利用できない場合はスキップとして報告する。
+
+ドラッグ確認は Move / Copy / Cancel / Esc / 閉じる操作を検証する。3種類のビューにネイティブ Qt イベントを送り、修飾キーなし／Ctrl／Shift のすべてで確認を経ることを確認する。外部ソースが選択した操作を許可しない場合も、確認後に拒否してファイルを変更しないことを検証する。
+
+本体の `p1_regression.cpp` は3ビュー×コピー／移動の6ケース、転送先一覧と選択の更新、別の場所へ移動した場合の表示維持、閲覧フォルダー自体が移動した場合の追従、クリップボードの途中差し替え、部分移動後の切り取り対象の保持を確認する。
+
+専用テストの ASan 実行例：
+
+```bash
+mkdir -p build/transfer-asan
+cd build/transfer-asan
+qmake6 ../../tests/TransferTests.pro CONFIG+=debug \
+  'QMAKE_CXXFLAGS+=-fsanitize=address -fno-omit-frame-pointer' \
+  'QMAKE_LFLAGS+=-fsanitize=address' -after TARGET=TransferTestsAsan
+make -j4
+ASAN_OPTIONS=detect_leaks=0 ./TransferTestsAsan -platform offscreen
+```
+
+### Thunar との X11 統合テスト
+
+Qt の xcb プラグイン、Thunar、xdotool、Xvfb、xauth、dbus-run-session、dbus-update-activation-environment と Python 3 が必要。ユーザーの表示やクリップボードに影響しない独立した X11／D-Bus セッションで実行する。
+
+```bash
+xvfb-run -a -s '-screen 0 1200x900x24' dbus-run-session -- \
+  python3 tests/external_transfer_x11.py \
+  --runner build/transfer-tests/TransferTests --drag
+```
+
+一時ディレクトリと独立した XDG 設定を使用する。双方向クリップボードのコピー／移動4ケース、Thunar からの実ドラッグの Copy（Ctrl）、Move（修飾なし）、Cancel（Shift）の3ケースを検証する。固定の Thunar レイアウトを使うため、UI 構成が変わった場合はスクリプトの座標とウィンドウ検出を確認する。外部へのドラッグは安全な確認を保証できないため未対応。
+
+### Windows で必要な実機検証（未実行）
+
+- Explorer → TreeWalker と TreeWalker → Explorer の Ctrl+C／X／V を、それぞれコピー・移動・繰り返し貼り付けで確認する。
+- 3ビューへの Explorer からのドロップで Move / Copy / Cancel が毎回表示されることを、Ctrl／Shift の有無と同一／別ボリュームで確認する。
+- 相手が CopyAction による安全な応答を許可しない場合は、確認後に拒否され、元も転送先も変更されないことを確認する。
+- 既存ファイル／フォルダーとの競合、読み取り専用、隠し属性、使用中ファイル、長いパス、日本語名、別ボリュームでのキャンセル・容量不足・部分失敗を確認する。
+- シンボリックリンクをたどらずに扱うこと、非対応のジャンクション等を拒否すること、移動元を二重削除しないことを確認する。
+- TreeWalker から Explorer へのドラッグではファイル URL が公開されず、ファイルが転送されないことを確認する。
+
+Linux の結果を Windows の検証成功として扱わない。
