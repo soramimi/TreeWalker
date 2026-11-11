@@ -33,6 +33,7 @@
 #include "IncrementalSearchHelper.h"
 #include "TransferJob.h"
 #include "TransferClipboard.h"
+#include "TransferDrag.h"
 #include <QClipboard>
 #include <QKeySequence>
 #include <QProgressDialog>
@@ -214,6 +215,15 @@ MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, Thumbnail
 	, ui(new Ui::MainWindow)
 {
 	ui->setupUi(this);
+	for (auto *view : {static_cast<QAbstractItemView *>(ui->treeView), static_cast<QAbstractItemView *>(ui->tableView), static_cast<QAbstractItemView *>(ui->thumbnailView)}) {
+		new filetransfer::DragController(view, view == ui->treeView, [this] { return m->current_location.path; }, [this](filetransfer::Request request, Qt::DropActions allowed) {
+			if (m->transfer_job) { setStatusBarText(tr("Wait for the current transfer to finish.")); return false; }
+			if (!filetransfer::confirmDrop(&request, allowed, this)) return false;
+			startTransfer(request);
+			return m->transfer_job != nullptr;
+		});
+	}
+
 	
 	m->status_bar_label = new StatusLabel(this);
 	m->status_bar_label->setAlignment((Qt::Alignment)Qt::TextSingleLine);

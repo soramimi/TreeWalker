@@ -9,3 +9,5 @@ SOURCES += ../src/TransferJob.cpp
 HEADERS += ../src/TransferJob.h ../src/WorkerThread.h
 SOURCES += ../src/TransferClipboard.cpp
 HEADERS += ../src/TransferClipboard.h
+SOURCES += ../src/TransferDrag.cpp
+HEADERS += ../src/TransferDrag.h

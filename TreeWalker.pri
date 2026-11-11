@@ -151,3 +151,5 @@ SOURCES += $$PWD/src/TransferJob.cpp
 HEADERS += $$PWD/src/TransferJob.h
 SOURCES += $$PWD/src/TransferClipboard.cpp
 HEADERS += $$PWD/src/TransferClipboard.h
+SOURCES += $$PWD/src/TransferDrag.cpp
+HEADERS += $$PWD/src/TransferDrag.h

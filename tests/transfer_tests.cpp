@@ -1,6 +1,16 @@
 #include "FileTransfer.h"
 #include "TransferJob.h"
 #include "TransferClipboard.h"
+#include "TransferDrag.h"
+#include <QMessageBox>
+#include <QPushButton>
+#include <QTreeView>
+#include <QTableView>
+#include <QListView>
+#include <QStandardItemModel>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include "FileItemModel.h"
 #include <QUrl>
 #include <QSignalSpy>
 #include <QTemporaryDir>
@@ -11,6 +21,71 @@
 class TransferTests : public QObject {
 	Q_OBJECT
 private slots:
+	void internalDropAcrossViews_data()
+	{
+		QTest::addColumn<int>("view"); QTest::addColumn<int>("modifiers");
+		for (int view = 0; view < 3; ++view) for (int modifiers : {0, int(Qt::ControlModifier), int(Qt::ShiftModifier)}) QTest::newRow(qPrintable(QString("%1-%2").arg(view).arg(modifiers))) << view << modifiers;
+	}
+	void internalDropAcrossViews()
+	{
+		QFETCH(int, view); QFETCH(int, modifiers);
+		QTemporaryDir root; QDir dir(root.path()); QVERIFY(dir.mkdir("target"));
+		QFile file(dir.filePath("data")); QVERIFY(file.open(QIODevice::WriteOnly)); file.close();
+		std::unique_ptr<QAbstractItemView> widget;
+		if (view == 0) widget = std::make_unique<QTreeView>();
+		else if (view == 1) widget = std::make_unique<QTableView>();
+		else widget = std::make_unique<QListView>();
+		QStandardItemModel model; auto *folder = new QStandardItem("target");
+		folder->setData(dir.filePath("target"), PathRole); folder->setData(int(Kind::Directory), KindRole); model.appendRow(folder);
+		widget->setModel(&model); widget->resize(300, 200); widget->show(); QCoreApplication::processEvents();
+		int confirmations = 0;
+		filetransfer::DragController controller(widget.get(), view == 0, [&] { return dir.filePath("target"); }, [&](filetransfer::Request request, Qt::DropActions allowed) {
+			++confirmations;
+			QTimer::singleShot(0, [] { auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()); if (box) for (auto *button : box->buttons()) if (button->text() == "Copy") { button->click(); return; } });
+			if (!filetransfer::confirmDrop(&request, allowed, widget.get())) return false;
+			if (request.operation != filetransfer::Operation::Copy) return false;
+			return filetransfer::execute(request)[0].outcome == filetransfer::Outcome::Completed;
+		});
+		filetransfer::DragSession session({file.fileName()}); auto mime = session.mimeData();
+		QVERIFY(!mime->hasUrls());
+		QPoint point = widget->visualRect(model.index(0, 0)).center();
+		QDragEnterEvent enter(point, Qt::CopyAction | Qt::MoveAction, mime.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers));
+		QApplication::sendEvent(widget->viewport(), &enter); QVERIFY(enter.isAccepted());
+		QDropEvent drop(point, Qt::CopyAction | Qt::MoveAction, mime.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers));
+		QApplication::sendEvent(widget->viewport(), &drop); QVERIFY(drop.isAccepted()); QCOMPARE(confirmations, 1);
+		QVERIFY(QFileInfo::exists(dir.filePath("target/data"))); QVERIFY(QFileInfo::exists(file.fileName()));
+	}
+
+	void dropAlwaysAsks_data()
+	{
+		QTest::addColumn<QString>("button");
+		for (auto const &button : {QString("Move"), QString("Copy"), QString("Cancel"), QString("Escape"), QString("Close")}) QTest::newRow(qPrintable(button)) << button;
+	}
+	void dropAlwaysAsks()
+	{
+		QFETCH(QString, button);
+		QTemporaryDir root; QDir dir(root.path()); QVERIFY(dir.mkdir("target"));
+		QFile file(dir.filePath("data")); QVERIFY(file.open(QIODevice::WriteOnly)); file.write("data"); file.close();
+		filetransfer::Request request{{file.fileName()}, dir.filePath("target")};
+		bool asked = false;
+		QTimer timer;
+		connect(&timer, &QTimer::timeout, [&] {
+			auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+			if (!box) return;
+			asked = true; timer.stop();
+			QVERIFY(QFileInfo::exists(file.fileName())); QVERIFY(!QFileInfo::exists(dir.filePath("target/data")));
+			if (button == "Escape") { QTest::keyClick(box, Qt::Key_Escape); return; }
+			if (button == "Close") { box->close(); return; }
+			for (auto *candidate : box->buttons()) if (candidate->text() == button) { candidate->click(); return; }
+			box->reject();
+		});
+		timer.start(10);
+		bool accepted = filetransfer::confirmDrop(&request, Qt::CopyAction | Qt::MoveAction, nullptr);
+		QVERIFY(asked); QCOMPARE(accepted, button == "Move" || button == "Copy");
+		if (accepted) QCOMPARE(request.operation, button == "Move" ? filetransfer::Operation::Move : filetransfer::Operation::Copy);
+		QVERIFY(QFileInfo::exists(file.fileName())); QVERIFY(!QFileInfo::exists(dir.filePath("target/data")));
+	}
+
 	void clipboardFormats()
 	{
 		for (auto op : {filetransfer::Operation::Copy, filetransfer::Operation::Move}) {
