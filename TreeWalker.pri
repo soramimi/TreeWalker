@@ -144,3 +144,6 @@ win32:HEADERS += $$PWD/src/WindowsCom.h
 
 RESOURCES += \
 	src/resources/resources.qrc
+
+SOURCES += $$PWD/src/FileTransfer.cpp
+HEADERS += $$PWD/src/FileTransfer.h

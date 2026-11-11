@@ -1,0 +1,7 @@
+QT += core gui widgets testlib
+CONFIG += testcase console c++17
+CONFIG -= app_bundle
+TARGET = TransferTests
+INCLUDEPATH += .. ../src ../subprojects/IncrementalSearchPlugin/src
+SOURCES += transfer_tests.cpp ../src/FileTransfer.cpp
+HEADERS += ../src/FileTransfer.h
