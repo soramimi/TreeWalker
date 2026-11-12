@@ -19,7 +19,6 @@ msvc:QMAKE_CFLAGS += /FI file-msvc/config.h /FI inttypes.h
 msvc:INCLUDEPATH += C:/vcpkg/installed/x64-windows/include
 
 gcc:INCLUDEPATH += file-gcc
-gcc:INCLUDEPATH += gen
 gcc:QMAKE_CFLAGS += -include config.h -include stdint.h
 gcc:QMAKE_CXXFLAGS += -include config.h -include stdint.h
 macx:QMAKE_CFLAGS += -include xlocale.h

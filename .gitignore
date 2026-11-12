@@ -48,11 +48,36 @@ config.cache
 stamp-h[0-9]*
 
 # Project output directories
-/lib/
-/subprojects/FileTypePlugin/lib/
-/subprojects/FileTypePlugin/_build/
-/subprojects/IncrementalSearchPlugin/_build/
+lib/
+subprojects/FileTypePlugin/lib/
+subprojects/FileTypePlugin/_build/
+subprojects/IncrementalSearchPlugin/_build/
 
 # Raw copies duplicate the versioned embedded dictionary C array
-/subprojects/FileTypePlugin/gen/*.mgc
-/subprojects/FileTypePlugin/gen/*.mgc.zst
+subprojects/FileTypePlugin/gen/*.mgc
+subprojects/FileTypePlugin/gen/*.mgc.zst
+subprojects/FileTypePlugin/oniguruma/compile
+subprojects/FileTypePlugin/oniguruma/config.guess
+subprojects/FileTypePlugin/oniguruma/config.sub
+subprojects/FileTypePlugin/oniguruma/depcomp
+subprojects/FileTypePlugin/oniguruma/INSTALL
+subprojects/FileTypePlugin/oniguruma/install-sh
+subprojects/FileTypePlugin/oniguruma/missing
+subprojects/FileTypePlugin/oniguruma/test-driver
+
+subprojects/IncrementalSearchPlugin/mecab/mecab-ipadic/Makefile
+subprojects/IncrementalSearchPlugin/mecab/mecab/config.h
+subprojects/IncrementalSearchPlugin/mecab/mecab/doc/Makefile
+subprojects/IncrementalSearchPlugin/mecab/mecab/libtool
+subprojects/IncrementalSearchPlugin/mecab/mecab/Makefile
+subprojects/IncrementalSearchPlugin/mecab/mecab/man/Makefile
+subprojects/IncrementalSearchPlugin/mecab/mecab/mecab-config
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/Makefile
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/mecab
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/mecab-cost-train
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/mecab-dict-gen
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/mecab-dict-index
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/mecab-system-eval
+subprojects/IncrementalSearchPlugin/mecab/mecab/src/mecab-test-gen
+subprojects/IncrementalSearchPlugin/mecab/mecab/stamp-h.in
+subprojects/IncrementalSearchPlugin/mecab/mecab/tests/Makefile
