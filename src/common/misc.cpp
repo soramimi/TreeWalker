@@ -2,6 +2,7 @@
 #include "joinpath.h"
 #include "q/FileInfo.h"
 #include "str.h"
+#include <chrono>
 #include <vector>
 
 #ifdef USE_QT
