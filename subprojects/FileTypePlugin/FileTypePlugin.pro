@@ -61,5 +61,5 @@ HEADERS += \
 	src/FileTypeWrapper.h \
 	src/zs.h
 
-SOURCES += gen/magic_mgc_zst.c
+SOURCES += gen/xxd_magic_mgc_zst.c
 
