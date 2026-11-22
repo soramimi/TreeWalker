@@ -148,6 +148,5 @@ LocationData FetchLocationThread::fetchImpl(LocationData data, StopRequested con
 		if (directories_only && !info.isdir) continue;
 		if (info && !(info.isdir && (info.name_ == "." || info.name_ == ".."))) data.files.push_back(std::move(info));
 	}
-	MainWindow::sortFileInfoList(&data.files);;
 	return data;
 }

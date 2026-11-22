@@ -405,6 +405,28 @@ private slots:
 		QCOMPARE(root->child(0)->text(), QString("new"));
 	}
 
+	void treeSortsDirectoryResultsByPath()
+	{
+		MainWindow window(nullptr, {}, {}, [](LocationData data, auto const &) {
+			for (auto const &name : {QStringLiteral("Zulu"), QStringLiteral("alpha"), QStringLiteral("Bravo")}) {
+				FileInfo2 child;
+				child.isdir = true;
+				child.set_name(name);
+				child.path = QStringLiteral("/") + name;
+				child.iidl = ItemIdList(child.path);
+				data.files.push_back(std::move(child));
+			}
+			return data;
+		});
+		QVERIFY(prepareWindow(window));
+		auto *root = window.makeTreeCompletely();
+		QVERIFY(root);
+		QTRY_COMPARE(root->childCount(), 3);
+		QCOMPARE(root->child(0)->text(), QStringLiteral("alpha"));
+		QCOMPARE(root->child(1)->text(), QStringLiteral("Bravo"));
+		QCOMPARE(root->child(2)->text(), QStringLiteral("Zulu"));
+	}
+
 	void navigatingClearsPreviousRowsBeforeFetchFinishes()
 	{
 		QTemporaryDir files(QDir::currentPath() + "/treewalker-loading-XXXXXX");

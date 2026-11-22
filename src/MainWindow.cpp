@@ -182,6 +182,13 @@ static QString getDisplayName(FileInfo2 const &info)
 	return info.name_;
 }
 
+static bool directoryPathLess(FileInfo2 const &left, FileInfo2 const &right)
+{
+	if (left.path.isEmpty() != right.path.isEmpty()) return left.path.isEmpty();
+	if (left.path.isEmpty()) return left.iidl.iidl() < right.iidl.iidl();
+	return QString::compare(left.path, right.path, Qt::CaseInsensitive) < 0;
+}
+
 #ifdef Q_OS_WIN
 static std::optional<std::vector<ItemIdList>> splitShellItemIdList(ItemIdList const &iidl)
 {
@@ -534,6 +541,7 @@ void MainWindow::applyTreeResult(LocationData const &result, quint64 generation,
 			if (m->iidl_hide_set.count(info.iidl)) continue;
 			directories.push_back(info);
 		}
+		std::stable_sort(directories.begin(), directories.end(), directoryPathLess);
 		// Retain unchanged nodes, their selections, and expanded descendants.
 		std::set<ItemIdList> wanted;
 		for (auto const &info : directories) wanted.insert(info.iidl);
@@ -2380,11 +2388,7 @@ std::vector<FileInfo2> MainWindow::windowsMyComputerFiles()
 
 		}
 	}
-	std::stable_sort(files.begin(), files.end(), [](FileInfo2 const &left, FileInfo2 const &right) {
-		if (left.path.isEmpty() != right.path.isEmpty()) return left.path.isEmpty();
-		if (left.path.isEmpty()) return left.iidl.iidl() < right.iidl.iidl();
-		return QString::compare(left.path, right.path, Qt::CaseInsensitive) < 0;
-	});
+	std::stable_sort(files.begin(), files.end(), directoryPathLess);
 #endif
 	return files;
 }
