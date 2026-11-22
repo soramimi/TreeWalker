@@ -108,11 +108,26 @@ bool DragController::eventFilter(QObject *watched, QEvent *event)
 	} else if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
 		auto *drag = static_cast<QDragMoveEvent *>(event);
 		auto request = requestFor(drag->mimeData(), drag->position().toPoint());
-		qCDebug(dragLog) << "drag" << event->type() << drag->possibleActions() << drag->mimeData()->formats() << request.sources << request.destination << validate(&request);
+		const auto actions = drag->possibleActions();
+		const bool entering = event->type() == QEvent::DragEnter;
+		qCDebug(dragLog) << "drag" << event->type() << actions << drag->mimeData()->formats() << request.sources << request.destination;
+		// Qt needs an accepted enter event to route later moves within the view.
+		if (!(actions & (Qt::CopyAction | Qt::MoveAction)) || request.sources.isEmpty()
+				|| (!entering && !validate(&request).isEmpty())) {
+			drag->ignore();
+			indicator_->hide();
+			scroll_.stop();
+			return true;
+		}
+		if (!entering) {
+			hover_ = drag->position().toPoint();
+			indicate(hover_);
+			scroll_.start();
+		}
 		// Copy is the transport acknowledgment; only our backend may delete sources.
-		if (!(drag->possibleActions() & (Qt::CopyAction | Qt::MoveAction)) || !validate(&request).isEmpty()) { drag->ignore(); indicator_->hide(); return true; }
-		hover_ = drag->position().toPoint(); indicate(hover_); scroll_.start();
-		drag->setDropAction((drag->possibleActions() & Qt::CopyAction) ? Qt::CopyAction : Qt::MoveAction); drag->accept(); return true;
+		drag->setDropAction((actions & Qt::CopyAction) ? Qt::CopyAction : Qt::MoveAction);
+		drag->accept();
+		return true;
 	} else if (event->type() == QEvent::DragLeave) { indicator_->hide(); scroll_.stop(); event->accept(); return true; }
 	else if (event->type() == QEvent::Drop) {
 		auto *drop = static_cast<QDropEvent *>(event);

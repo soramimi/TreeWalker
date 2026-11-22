@@ -3,6 +3,7 @@
 #include <QAbstractItemModelTester>
 #include <QDesktopServices>
 #include <QDir>
+#include <QDragEnterEvent>
 #include <QFile>
 #include <QKeyEvent>
 #include <QPersistentModelIndex>
@@ -11,6 +12,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUrl>
+#include <QWindow>
 #include <atomic>
 
 #include "ApplicationGlobal.h"
@@ -26,6 +28,7 @@
 #include <QMessageBox>
 #include <QAbstractButton>
 #include "TransferClipboard.h"
+#include "TransferDrag.h"
 #include "worker_test_support.h"
 #include "ThumbnailView.h"
 #include "subprojects/IncrementalSearchPlugin/src/IncrementalSearchInterface.h"
@@ -212,6 +215,102 @@ private slots:
 		QCOMPARE(QFileInfo::exists(dir.filePath("source/data.txt")), !cut);
 		if (cut) QVERIFY(filetransfer::clipboardToken(QApplication::clipboard()->mimeData()).isEmpty());
 		if (clipboard_replaced) QCOMPARE(QApplication::clipboard()->text(), QString("new clipboard contents"));
+	}
+
+	void dropFileIntoFolderInSameView_data()
+	{
+		QTest::addColumn<bool>("thumbnails");
+		QTest::addColumn<QString>("button");
+		QTest::addColumn<int>("modifiers");
+		for (bool thumbnails : {false, true}) {
+			const QString view = thumbnails ? "thumbnails" : "details";
+			QTest::newRow(qPrintable(view + "-move")) << thumbnails << QString("Move") << int(Qt::ControlModifier);
+			QTest::newRow(qPrintable(view + "-copy")) << thumbnails << QString("Copy") << int(Qt::ShiftModifier);
+			QTest::newRow(qPrintable(view + "-cancel")) << thumbnails << QString("Cancel") << int(Qt::NoModifier);
+		}
+	}
+
+	void dropFileIntoFolderInSameView()
+	{
+		QFETCH(bool, thumbnails);
+		QFETCH(QString, button);
+		QFETCH(int, modifiers);
+		QTemporaryDir root(QDir::currentPath() + "/treewalker-same-view-drop-XXXXXX");
+		QVERIFY(root.isValid());
+		QVERIFY(QDir(root.path()).mkdir("folder"));
+		const QString source = root.filePath("data.txt");
+		const QString folder = root.filePath("folder");
+		const QString destination = root.filePath("folder/data.txt");
+		QVERIFY(createFile(source));
+
+		MainWindow window;
+		QVERIFY(prepareWindow(window));
+		QVERIFY(window.makeTreeCompletely());
+		window.openDir(ItemIdList(root.path()));
+		window.setViewMode(thumbnails ? MainWindow::Thumbnail : MainWindow::List);
+		window.show();
+		auto *view = window.findChild<QAbstractItemView *>(thumbnails ? "thumbnailView" : "tableView");
+		QVERIFY(view && window.windowHandle());
+		auto *model = window.fileitemmodel();
+		QTRY_COMPARE(model->rowCount(), 2);
+		const auto first = model->index(0, 0);
+		const auto second = model->index(1, 0);
+		const bool source_first = filetransfer::pathKey(first.data(FileItemModel::PathRole).toString()) == filetransfer::pathKey(source);
+		const auto source_index = source_first ? first : second;
+		const auto folder_index = source_first ? second : first;
+		QCOMPARE(filetransfer::pathKey(source_index.data(FileItemModel::PathRole).toString()), filetransfer::pathKey(source));
+		QCOMPARE(filetransfer::pathKey(folder_index.data(FileItemModel::PathRole).toString()), filetransfer::pathKey(folder));
+		QTRY_VERIFY(view->visualRect(source_index).isValid() && view->visualRect(folder_index).isValid());
+		const QPoint source_point = view->viewport()->mapTo(&window, view->visualRect(source_index).center());
+		const QPoint folder_point = view->viewport()->mapTo(&window, view->visualRect(folder_index).center());
+		filetransfer::DragSession drag({source});
+		const auto mime = drag.mimeData();
+		const auto actions = Qt::CopyAction | Qt::MoveAction;
+		const auto keys = Qt::KeyboardModifiers(modifiers);
+		// Send through the window so Qt must register the drag target on entry.
+		QDragEnterEvent enter(source_point, actions, mime.get(), Qt::LeftButton, keys);
+		QApplication::sendEvent(window.windowHandle(), &enter);
+		QVERIFY(enter.isAccepted());
+		QDragMoveEvent over_source(source_point, actions, mime.get(), Qt::LeftButton, keys);
+		QApplication::sendEvent(window.windowHandle(), &over_source);
+		QVERIFY(!over_source.isAccepted());
+		QDragMoveEvent over_folder(folder_point, actions, mime.get(), Qt::LeftButton, keys);
+		QApplication::sendEvent(window.windowHandle(), &over_folder);
+		QVERIFY(over_folder.isAccepted());
+
+		QSignalSpy finished(&window, &MainWindow::transferFinished);
+		bool confirmed = false;
+		QTimer::singleShot(0, &window, [&] {
+			auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+			if (!box) return;
+			confirmed = box->windowTitle() == "Move or copy?" && QFileInfo::exists(source) && !QFileInfo::exists(destination);
+			for (auto *candidate : box->buttons()) {
+				if (candidate->text() == button) {
+					candidate->click();
+					return;
+				}
+			}
+			box->reject();
+		});
+		QDropEvent drop(folder_point, actions, mime.get(), Qt::LeftButton, keys);
+		QApplication::sendEvent(window.windowHandle(), &drop);
+		QVERIFY(confirmed);
+		if (button == "Cancel") {
+			QVERIFY(!drop.isAccepted());
+			QVERIFY(finished.isEmpty());
+			QVERIFY(QFileInfo::exists(source));
+			QVERIFY(!QFileInfo::exists(destination));
+			return;
+		}
+		QVERIFY(drop.isAccepted());
+		QCOMPARE(drop.dropAction(), Qt::CopyAction);
+		QTRY_COMPARE(finished.count(), 1);
+		const bool moved = button == "Move";
+		QCOMPARE(QFileInfo::exists(source), !moved);
+		QFile transferred(destination);
+		QVERIFY(transferred.open(QIODevice::ReadOnly));
+		QCOMPARE(transferred.readAll(), QByteArray("test\n"));
+		QTRY_COMPARE(model->rowCount(), moved ? 1 : 2);
 	}
 
 	void providerDupKeepsDestination()
