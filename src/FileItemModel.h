@@ -11,25 +11,33 @@
 
 #include <subprojects/IncrementalSearchPlugin/src/IncrementalSearch.h>
 
-enum ItemRole {
-	KindRole = Qt::UserRole,
-	NameRole,
-	PathRole,
-	UrlRole,
-	IidlRole,
-};
-
-enum class Kind {
-	File,
-	Directory,
-	SubDirectory,
-	NotPermittedDirectory,
-	Placeholder,
-	ChromeBookmark,
-};
-
 class FileItemModel : public QAbstractItemModel {
 	Q_OBJECT
+public:
+	enum ItemRole {
+		KindRole = Qt::UserRole,
+		NameRole,
+		PathRole,
+		UrlRole,
+		IidlRole,
+	};
+	
+	enum class Kind {
+		File,
+		Directory,
+		SubDirectory,
+		NotPermittedDirectory,
+		Placeholder,
+		ChromeBookmark,
+	};
+	
+	enum class SortColumn {
+		Name,
+		Size,
+		Type,
+		Modified,
+	};
+	
 public:
 	using MatchFunction = std::function<incrementalsearch::Result(xstring const &, IncrementalSearchFilter const &)>;
 	struct Item {
@@ -52,8 +60,12 @@ public:
 private:
 	MatchFunction match_;
 	std::vector<Item> items_;
-	mutable std::vector<size_t> indices_;
+	mutable std::vector<size_t> sorted_indices_;
+	mutable std::vector<size_t> filtered_indices_;
+	mutable bool sorted_indices_valid_ = false;
 	mutable bool indices_valid_ = false;
+	SortColumn sort_column_ = SortColumn::Name;
+	Qt::SortOrder sort_order_ = Qt::AscendingOrder;
 	IncrementalSearchFilter filter_;
 	void updateIndices();
 	void prepareItem(Item *item, Kind kind);
@@ -71,6 +83,9 @@ public:
 	mutable std::optional<int> filtered_items_;
 	bool isFiltered() const;
 	void setFilterText(QString const &filter_text);
+	void sort(int column, Qt::SortOrder order) override;
+	int sortColumn() const { return static_cast<int>(sort_column_); }
+	Qt::SortOrder sortOrder() const { return sort_order_; }
 public:
 	FileItemModel(QWidget *parent = nullptr, MatchFunction match = {});
 	virtual ~FileItemModel() = default;

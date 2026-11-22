@@ -27,7 +27,7 @@ NetworkDiscoveryThread::Entry entry(QString name)
 {
 	NetworkDiscoveryThread::Entry result;
 	result.info.iidl.iidl() = QByteArray("host-id");
-	result.info.name = std::move(name);
+	result.info.set_name(std::move(name));
 	result.info.isdir = true;
 	return result;
 }
@@ -169,8 +169,8 @@ private slots:
 		QVERIFY(returned);
 		QVERIFY(!accepted);
 		QCOMPARE(files.size(), size_t(1));
-		QCOMPARE(files.front().name, QString("new host"));
-		QCOMPARE(discovery.files().front().name, QString("new host"));
+		QCOMPARE(files.front().name(), QString("new host"));
+		QCOMPARE(discovery.files().front().name(), QString("new host"));
 	}
 };
 

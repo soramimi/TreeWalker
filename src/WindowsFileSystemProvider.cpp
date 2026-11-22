@@ -266,7 +266,7 @@ bool WindowsFileSystemProvider::fetch()
 
 QString WindowsFileSystemProvider::fileName() const
 {
-	return m->fileinfo.name;
+	return m->fileinfo.name();
 }
 
 FileInfo2 WindowsFileSystemProvider::fileInfo() const
@@ -390,9 +390,9 @@ FileInfo2 WindowsFileSystemProvider::getFileInfo(HIMAGELIST_ hImageList, ItemIdL
 
 	QFileInfo qfi(fi.path);
 	fi.iidl = iidl.d.iidl;
-	fi.name = QString::fromUtf16((ushort const *)sfinfo.szDisplayName);
+	fi.set_name(QString::fromUtf16((ushort const *)sfinfo.szDisplayName));
 	fi.isdir = fi.path.isEmpty() || qfi.isDir() || (sfinfo.dwAttributes & SFGAO_FOLDER);
-	fi.ishidden = (sfinfo.dwAttributes & SFGAO_HIDDEN) || qfi.isHidden() || fi.name.startsWith('.');
+	fi.ishidden = (sfinfo.dwAttributes & SFGAO_HIDDEN) || qfi.isHidden() || fi.name().startsWith('.');
 
 	if (isPhysicalFilesystemFolder(iidl_p)) {
 		// 物理ファイルシステムのフォルダはストックアイコンを使用する。
@@ -435,7 +435,7 @@ static FileInfo2 getNetworkFileInfo(HIMAGELIST_ hImageList, ItemIdList const &ii
 	}
 
 	fi.iidl = iidl;
-	fi.name = QString::fromUtf16((ushort const *)sfinfo.szDisplayName);
+	fi.set_name(QString::fromUtf16((ushort const *)sfinfo.szDisplayName));
 	fi.isdir = fi.path.isEmpty() || (sfinfo.dwAttributes & SFGAO_FOLDER);
 
 	auto it = icon_cache.find(sfinfo.iIcon);

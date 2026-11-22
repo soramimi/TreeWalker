@@ -1,5 +1,4 @@
 #include <QTest>
-#include <QElapsedTimer>
 #include <QPainter>
 #include <QScopedValueRollback>
 #include <QStyledItemDelegate>
@@ -106,10 +105,6 @@ private slots:
 		auto filter = search.makeFilter(query.toStdString());
 		auto result = search.match(fromQString(text), filter);
 		verifyResult(text, result, matches, highlights);
-		auto prepared = search.prepare(fromQString(text));
-		const auto count = search.readingGenerationCount();
-		for (int i = 0; i < 3; ++i) verifyResult(text, search.match(prepared, filter), matches, highlights);
-		QCOMPARE(search.readingGenerationCount(), count);
 	}
 
 	void originalAndReadingMatchesDoNotDuplicateText()
@@ -122,16 +117,14 @@ private slots:
 		const QString text = "カタカナの資料.txt";
 		auto result = global->incremental_search->match(fromQString(text), filter);
 		verifyResult(text, result, true, {"カタカナ"});
-		verifyResult(text, global->incremental_search->match(global->incremental_search->prepare(fromQString(text)), filter), true, {"カタカナ"});
 	}
 
-	void preparedTextOwnsSourceAndFragments()
+	void fragmentsPreserveSource()
 	{
 		auto &search = *global->incremental_search;
-		auto prepared = search.prepare(fromQString(QString("東京都.txt")));
 		IncrementalSearchFilter filter;
 		filter.original_text = fromQString("東京都.txt");
-		auto result = search.match(prepared, filter);
+		auto result = search.match(fromQString(QString("東京都.txt")), filter);
 		verifyResult("東京都.txt", result, true, {"東京都.txt"});
 		auto prefix = incrementalsearch::textFragments(result, 0, 4);
 		auto suffix = incrementalsearch::textFragments(result, 4);
@@ -144,7 +137,7 @@ private slots:
 		QCOMPARE(QString::fromStdString(search.convertRomajiToKatakana("konna")), QString("コンア"));
 	}
 
-	void modelAndPaintingReuseReadings()
+	void modelAndPaintingUseCurrentName()
 	{
 		MainWindow window;
 		QScopedValueRollback<MainWindow *> context(global->mainwindow, &window);
@@ -154,26 +147,22 @@ private slots:
 		QVERIFY(details && thumbnails);
 		details->setModel(model);
 		thumbnails->setModel(model);
-		details->setKind(Kind::Directory);
-		thumbnails->setKind(Kind::Directory);
+		details->setKind(FileItemModel::Kind::Directory);
+		thumbnails->setKind(FileItemModel::Kind::Directory);
 		std::vector<FileItemModel::Item> items;
 		FileItemModel::Item item;
-		item.name = item.info.name = "東京都写真整理メモのとても長い名前😀.txt";
+		item.name = "東京都写真整理メモのとても長い名前😀.txt";
+		item.info.set_name(item.name);
 		item.type = "テキストファイル";
 		item.size = 1234;
 		item.modified = QDateTime::fromMSecsSinceEpoch(1000);
 		items.push_back(std::move(item));
-		model->replaceItems(Kind::Directory, std::move(items), "toukyou");
-		auto &search = *global->incremental_search;
-		const auto prepared = search.readingGenerationCount();
+		model->replaceItems(FileItemModel::Kind::Directory, std::move(items), "toukyou");
 		for (auto const &query : {QString("toukyou"), QString("shashin"), QString("unmatched-query"), QString("toukyou")}) {
 			model->setFilterText(query);
-			model->rowCount();
+			QCOMPARE(model->rowCount(), query == "unmatched-query" ? 0 : 1);
 		}
-		QCOMPARE(search.readingGenerationCount(), prepared);
 		QScopedValueRollback<bool> suffix(global->appsettings.strongly_draw_file_suffix);
-		QElapsedTimer drawing;
-		drawing.start();
 		for (bool strong : {false, true}) {
 			global->appsettings.strongly_draw_file_suffix = strong;
 			for (int width : {100, 800}) {
@@ -190,21 +179,16 @@ private slots:
 				thumbnails->itemDelegate()->paint(&painter, option, model->index(0, 0));
 			}
 		}
-		QCOMPARE(search.readingGenerationCount(), prepared);
-		qInfo() << "Cached detail/thumbnail drawing:" << drawing.elapsed() << "ms; additional reading generations: 0";
-		items.clear();
 		FileItemModel::Item renamed;
-		renamed.name = renamed.info.name = "大阪府.txt";
-		items.push_back(std::move(renamed));
-		model->replaceItems(Kind::Directory, std::move(items), "oosaka");
+		renamed.name = "大阪府.txt";
+		renamed.info.set_name(renamed.name);
+		model->replaceItems(FileItemModel::Kind::Directory, {std::move(renamed)}, "oosaka");
 		QCOMPARE(model->rowCount(), 1);
-		QVERIFY(search.readingGenerationCount() > prepared);
 		verifyResult("大阪府.txt", model->matchText(model->index(0, 0)), true, {"大阪"});
 	}
 
-	void readingCacheWorkload()
+	void repeatedFilteringOfLargeList()
 	{
-		auto &search = *global->incremental_search;
 		FileItemModel model;
 		std::vector<FileItemModel::Item> items;
 		for (int i = 0; i < 1000; ++i) {
@@ -212,26 +196,13 @@ private slots:
 			item.name = QString("東京都写真整理メモ%1.txt").arg(i);
 			items.push_back(std::move(item));
 		}
-		QElapsedTimer timer;
-		timer.start();
-		model.replaceItems(Kind::Directory, std::move(items), {});
-		const auto preparation_ms = timer.elapsed();
-		const auto count = search.readingGenerationCount();
-		timer.restart();
-		for (int i = 0; i < 20; ++i) {
-			model.setFilterText(i % 2 ? "toukyou" : "shashin");
-			QCOMPARE(model.count(), 1000);
+		model.replaceItems(FileItemModel::Kind::Directory, std::move(items), {});
+		for (auto const &query : {QString("toukyou"), QString("shashin"), QString("unmatched-query"), QString("toukyou")}) {
+			model.setFilterText(query);
+			QCOMPARE(model.count(), query == "unmatched-query" ? 0 : 1000);
 		}
-		const auto cached_ms = timer.elapsed();
-		QCOMPARE(search.readingGenerationCount(), count);
-		auto filter = search.makeFilter("shashin");
-		timer.restart();
-		for (int i = 0; i < 20; ++i) for (int row = 0; row < model.count(); ++row) {
-			QVERIFY(search.match(fromQString(model.item(row)->name), filter));
-		}
-		const auto uncached_ms = timer.elapsed();
-		QCOMPARE(search.readingGenerationCount() - count, quint64(20000));
-		qInfo() << "1000 names: prepare" << preparation_ms << "ms; 20 searches cached" << cached_ms << "ms, uncached" << uncached_ms << "ms";
+		model.setFilterText({});
+		QCOMPARE(model.count(), 1000);
 	}
 };
 

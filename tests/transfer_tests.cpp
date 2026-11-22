@@ -144,7 +144,7 @@ private slots:
 		else if (view == 1) widget = std::make_unique<QTableView>();
 		else widget = std::make_unique<QListView>();
 		QStandardItemModel model; auto *folder = new QStandardItem("target");
-		folder->setData(dir.filePath("target"), PathRole); folder->setData(int(Kind::Directory), KindRole); model.appendRow(folder);
+		folder->setData(dir.filePath("target"), FileItemModel::PathRole); folder->setData(int(FileItemModel::Kind::Directory), FileItemModel::KindRole); model.appendRow(folder);
 		widget->setModel(&model); widget->resize(300, 200); widget->show(); QCoreApplication::processEvents();
 		int confirmations = 0;
 		filetransfer::DragController controller(widget.get(), view == 0, [&] { return dir.filePath("target"); }, [&](filetransfer::Request request, Qt::DropActions allowed) {
@@ -302,7 +302,7 @@ int main(int argc, char **argv)
 	}
 	if (arguments.value(1) == "--drop-receiver") {
 		QListView view; QStandardItemModel model;
-		auto *folder = new QStandardItem("Drop files here"); folder->setData(arguments.value(3), PathRole); folder->setData(int(Kind::Directory), KindRole); model.appendRow(folder);
+		auto *folder = new QStandardItem("Drop files here"); folder->setData(arguments.value(3), FileItemModel::PathRole); folder->setData(int(FileItemModel::Kind::Directory), FileItemModel::KindRole); model.appendRow(folder);
 		view.setModel(&model); view.setGeometry(650, 0, 500, 700); view.setWindowTitle("TreeWalker Transfer Receiver");
 		int confirmations = 0;
 		filetransfer::DragController controller(&view, false, [&] { return arguments.value(3); }, [&](filetransfer::Request request, Qt::DropActions allowed) {

@@ -5,6 +5,7 @@
 #include "ThumbnailView.h"
 
 #include <QAbstractItemModelTester>
+#include <QHeaderView>
 #include <QPersistentModelIndex>
 #include <QScopedValueRollback>
 #include <QSignalSpy>
@@ -34,11 +35,12 @@ private slots:
 		std::vector<FileItemModel::Item> items;
 		for (QString const &name : {QString("東京都.txt"), QString("吾輩は猫である.txt")}) {
 			FileItemModel::Item item;
-			item.name = item.info.name = name;
+			item.name = name;
+			item.info.set_name(item.name);
 			item.info.isdir = true;
 			items.push_back(std::move(item));
 		}
-		model.replaceItems(Kind::Directory, std::move(items), "unmatched-query");
+		model.replaceItems(FileItemModel::Kind::Directory, std::move(items), "unmatched-query");
 		QCOMPARE(model.count(), 0);
 		QCOMPARE(matches, 2);
 		for (int i = 0; i < 100; ++i) {
@@ -263,10 +265,10 @@ private slots:
 		table->setModel(model);
 		thumbnails->setModel(model);
 		model->beginResetModel();
-		for (QString const &name : {QString("alpha"), QString("beta")}) {
+		for (QString const &name : {QString("beta"), QString("alpha")}) {
 			FileItemModel::Item file;
 			file.name = name;
-			file.info.name = name;
+			file.info.set_name(name);
 			file.info.isdir = true;
 			model->addItem(std::move(file));
 		}
@@ -285,6 +287,72 @@ private slots:
 		QCOMPARE(about_reset.count(), 2);
 		QCOMPARE(reset.count(), 2);
 		QCOMPARE(model->rowCount(), 2);
+		auto *view = thumbnail ? static_cast<QAbstractItemView *>(thumbnails) : table;
+		QCOMPARE(view->currentIndex().data().toString(), QString("alpha"));
+	}
+
+	void headerSortingKeepsSelectionAndBookmarks()
+	{
+		MainWindow window;
+		QScopedValueRollback<MainWindow *> context(global->mainwindow, &window);
+		auto *model = window.fileitemmodel();
+		auto *table = window.findChild<FileTableView *>("tableView");
+		auto *thumbnails = window.findChild<ThumbnailView *>("thumbnailView");
+		QVERIFY(table && thumbnails);
+		table->setModel(model);
+		thumbnails->setModel(model);
+		table->setKind(FileItemModel::Kind::Directory);
+		window.setViewMode(MainWindow::List);
+		window.show();
+		QAbstractItemModelTester tester(model, QAbstractItemModelTester::FailureReportingMode::QtTest);
+
+		FileItemModel::Item alpha;
+		alpha.name = "alpha.zip";
+		alpha.size = 30;
+		alpha.type = "zip";
+		alpha.modified = QDateTime::fromMSecsSinceEpoch(2000);
+		FileItemModel::Item beta;
+		beta.name = "beta.txt";
+		beta.size = 2;
+		beta.type = "txt";
+		beta.modified = QDateTime::fromMSecsSinceEpoch(1000);
+		model->replaceItems(FileItemModel::Kind::Directory, {beta, alpha}, {});
+		auto first = [&] { return model->index(0, 0).data().toString(); };
+		QCOMPARE(first(), alpha.name);
+		table->selectRow(0);
+		QPersistentModelIndex saved = model->index(0, 2);
+
+		auto *header = table->horizontalHeader();
+		auto click = [&](int column) {
+			auto x = header->sectionViewportPosition(column) + header->sectionSize(column) / 2;
+			QTest::mouseClick(header->viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(x, header->height() / 2));
+		};
+		click(0);
+		QCOMPARE(first(), beta.name);
+		for (int column : {1, 2, 3}) {
+			click(column);
+			QCOMPARE(header->sortIndicatorSection(), column);
+			QCOMPARE(first(), header->sortIndicatorOrder() == Qt::AscendingOrder ? beta.name : alpha.name);
+			QString previous = first();
+			click(column);
+			QVERIFY(first() != previous);
+		}
+		QCOMPARE(saved.data().toString(), alpha.type);
+		QCOMPARE(table->currentIndex().data().toString(), alpha.name);
+		QCOMPARE(table->selectionModel()->selectedRows().front().data().toString(), alpha.name);
+
+		Qt::SortOrder file_order = model->sortOrder();
+		alpha.path = "https://z.example";
+		beta.path = "https://a.example";
+		model->replaceItems(FileItemModel::Kind::ChromeBookmark, {alpha, beta}, {});
+		table->setKind(FileItemModel::Kind::ChromeBookmark);
+		click(0);
+		QCOMPARE(first(), beta.name);
+		QVERIFY(!header->isSortIndicatorShown());
+		model->replaceItems(FileItemModel::Kind::Directory, {alpha, beta}, {});
+		table->setKind(FileItemModel::Kind::Directory);
+		QCOMPARE(header->sortIndicatorSection(), 3);
+		QCOMPARE(header->sortIndicatorOrder(), file_order);
 	}
 
 	void replacingItemsKeepsUnfilteredRows_data()
@@ -309,11 +377,12 @@ private slots:
 		std::vector<FileItemModel::Item> items;
 		for (QString const &name : {QString("alpha"), QString("beta")}) {
 			FileItemModel::Item file;
-			file.name = file.info.name = name;
+			file.name = name;
+			file.info.set_name(file.name);
 			file.info.isdir = true;
 			items.push_back(std::move(file));
 		}
-		model->replaceItems(Kind::Directory, std::move(items), query);
+		model->replaceItems(FileItemModel::Kind::Directory, std::move(items), query);
 		QCOMPARE(about_reset.count(), 1);
 		QCOMPARE(reset.count(), 1);
 		QCOMPARE(model->rowCount(), matches);

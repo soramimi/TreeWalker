@@ -68,8 +68,8 @@ private:
 		if (!table || !thumbnails) return false;
 		table->setModel(window.fileitemmodel());
 		thumbnails->setModel(window.fileitemmodel());
-		table->setKind(Kind::Directory);
-		thumbnails->setKind(Kind::Directory);
+		table->setKind(FileItemModel::Kind::Directory);
+		thumbnails->setKind(FileItemModel::Kind::Directory);
 		return true;
 	}
 
@@ -84,12 +84,12 @@ private:
 		auto *model = window.fileitemmodel();
 		model->beginResetModel();
 		model->clearItems();
-		model->setKind(Kind::Directory);
+		model->setKind(FileItemModel::Kind::Directory);
 		for (QString const &name : {QString("a.txt"), QString("b.txt")}) {
 			FileItemModel::Item item;
 			item.name = name;
 			item.path = directory + '/' + name;
-			item.info.name = name;
+			item.info.set_name(name);
 			item.info.path = item.path;
 			item.info.iidl = ItemIdList(item.path);
 			item.size = item.info.size = 5;
@@ -109,12 +109,11 @@ private:
 	static LocationData folderResult(FolderTreeItem const *item)
 	{
 		LocationData location;
-		location.kind = static_cast<Kind>(item->data(0, KindRole).toInt());
+		location.kind = static_cast<FileItemModel::Kind>(item->data(0, FileItemModel::KindRole).toInt());
 		location.iidl = item->iidl();
-		location.path = item->data(0, PathRole).toString();
+		location.path = item->data(0, FileItemModel::PathRole).toString();
 		BasicFileSystemProvider provider(location.iidl);
 		while (provider.fetch()) location.files.push_back(provider.fileInfo());
-		MainWindow::sortFileInfoList(&location.files);
 		return location;
 	}
 
@@ -209,7 +208,7 @@ private slots:
 		QTRY_VERIFY(QFileInfo::exists(copied));
 		QTRY_COMPARE(finished.count(), 1);
 		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 1);
-		if (view != 0) QTRY_COMPARE(widget->currentIndex().data(PathRole).toString(), copied);
+		if (view != 0) QTRY_COMPARE(widget->currentIndex().data(FileItemModel::PathRole).toString(), copied);
 		QCOMPARE(QFileInfo::exists(dir.filePath("source/data.txt")), !cut);
 		if (cut) QVERIFY(filetransfer::clipboardToken(QApplication::clipboard()->mimeData()).isEmpty());
 		if (clipboard_replaced) QCOMPARE(QApplication::clipboard()->text(), QString("new clipboard contents"));
@@ -254,7 +253,7 @@ private slots:
 		auto *thumbnails = window.findChild<ThumbnailView *>("thumbnailView");
 		QVERIFY(thumbnails);
 		thumbnails->setCurrentIndex(window.fileitemmodel()->index(1, 0));
-		QCOMPARE(window.currentFilePath(), thumbnails->currentIndex().data(PathRole).toString());
+		QCOMPARE(window.currentFilePath(), thumbnails->currentIndex().data(FileItemModel::PathRole).toString());
 		QVERIFY(!window.renamePath(files.filePath("original.txt"), "existing.txt"));
 		QVERIFY(!window.renamePath(files.filePath("original.txt"), "../outside.txt"));
 		QVERIFY(!window.renamePath(files.filePath("original.txt"), ""));
@@ -284,8 +283,8 @@ private slots:
 			if (call == 1) gate->block();
 			FileInfo2 child;
 			child.isdir = true;
-			child.name = call == 1 ? "old" : "new";
-			child.path = "/" + child.name;
+			child.set_name(call == 1 ? "old" : "new");
+			child.path = "/" + child.name();
 			child.iidl = ItemIdList(child.path);
 			data.files.push_back(child);
 			return data;
@@ -305,6 +304,46 @@ private slots:
 		QCoreApplication::processEvents();
 		QCOMPARE(root->childCount(), 1);
 		QCOMPARE(root->child(0)->text(), QString("new"));
+	}
+
+	void navigatingClearsPreviousRowsBeforeFetchFinishes()
+	{
+		QTemporaryDir files(QDir::currentPath() + "/treewalker-loading-XXXXXX");
+		QVERIFY(files.isValid());
+		const QString first = files.filePath("first");
+		const QString second = files.filePath("second");
+		QVERIFY(QDir().mkpath(first));
+		QVERIFY(QDir().mkpath(second));
+		QVERIFY(createFile(first + "/before.txt"));
+		QVERIFY(createFile(second + "/after.txt"));
+		auto gate = std::make_shared<WorkerGate>();
+		MainWindow window(nullptr, [gate, second](LocationData data, auto const &) {
+			if (data.path == second) gate->block();
+			BasicFileSystemProvider provider(data.iidl);
+			while (provider.fetch()) data.files.push_back(provider.fileInfo());
+			return data;
+		});
+		ReleaseWorkers cleanup{gate};
+		QVERIFY(prepareWindow(window));
+		QVERIFY(window.makeTreeCompletely());
+		auto *model = window.fileitemmodel();
+		auto *table = window.findChild<FileTableView *>("tableView");
+		auto *thumbnails = window.findChild<ThumbnailView *>("thumbnailView");
+		auto firstPath = [&] { return model->index(0, 0).data(FileItemModel::PathRole).toString(); };
+		window.openDir(ItemIdList(first));
+		QTRY_COMPARE(firstPath(), first + "/before.txt");
+		table->selectRow(0);
+		thumbnails->selectRow(0);
+
+		window.openDir(ItemIdList(second));
+		QTRY_VERIFY(gate->entered.available() != 0);
+		QCOMPARE(window.currentLocation(), second);
+		QCOMPARE(model->rowCount(), 0);
+		QVERIFY(!table->currentIndex().isValid());
+		QVERIFY(!thumbnails->currentIndex().isValid());
+
+		gate->release.release();
+		QTRY_COMPARE(firstPath(), second + "/after.txt");
 	}
 
 	void oldFolderResultDoesNotReplaceNewRequest_data()
@@ -332,8 +371,8 @@ private slots:
 				if (old_failure) throw QString("late stale error");
 			}
 			FileInfo2 info;
-			info.name = old ? "old.txt" : "fresh.txt";
-			info.path = data.path + "/" + info.name;
+			info.set_name(old ? "old.txt" : "fresh.txt");
+			info.path = data.path + "/" + info.name();
 			data.files = {info};
 			return data;
 		});
@@ -344,13 +383,13 @@ private slots:
 		QTRY_VERIFY(gate->entered.available() >= 1);
 		gate->entered.acquire();
 		window.openDir(ItemIdList(second));
-		QTRY_COMPARE(window.fileitemmodel()->index(0, 0).data(PathRole).toString(), second + "/fresh.txt");
+		QTRY_COMPARE(window.fileitemmodel()->index(0, 0).data(FileItemModel::PathRole).toString(), second + "/fresh.txt");
 		window.openDir(ItemIdList(first));
-		QTRY_COMPARE(window.fileitemmodel()->index(0, 0).data(PathRole).toString(), first + "/fresh.txt");
+		QTRY_COMPARE(window.fileitemmodel()->index(0, 0).data(FileItemModel::PathRole).toString(), first + "/fresh.txt");
 		gate->release.release();
 		QVERIFY(gate->waitAll());
 		QCoreApplication::processEvents();
-		QCOMPARE(window.fileitemmodel()->index(0, 0).data(PathRole).toString(), first + "/fresh.txt");
+		QCOMPARE(window.fileitemmodel()->index(0, 0).data(FileItemModel::PathRole).toString(), first + "/fresh.txt");
 		QVERIFY(!hasStatus(window, "late stale error"));
 	}
 
@@ -510,7 +549,7 @@ private slots:
 				? MainWindow::FilterTarget::ThumbnailViewSearch
 				: MainWindow::FilterTarget::FileListViewSearch));
 		QCOMPARE(window.fileitemmodel()->rowCount(), 1);
-		QCOMPARE(window.fileitemmodel()->data(view->currentIndex(), PathRole).toString(), files.filePath("b.txt"));
+		QCOMPARE(window.fileitemmodel()->data(view->currentIndex(), FileItemModel::PathRole).toString(), files.filePath("b.txt"));
 
 		window.show(); window.activateWindow(); view->setFocus();
 		QCoreApplication::processEvents(); QVERIFY(view->hasFocus());
@@ -630,7 +669,7 @@ private slots:
 		QSignalSpy reset(model, &QAbstractItemModel::modelReset);
 		QTest::keyClicks(tree, "p108searchneedle");
 		tree->setCurrentItem(tree->itemFromIidl(ItemIdList(files.filePath("p108searchneedle-one"))));
-		QTRY_VERIFY(model->rowCount() == 2 && model->index(0, 0).data(PathRole).toString() == files.filePath("p108searchneedle-one/other.txt"));
+		QTRY_VERIFY(model->rowCount() == 2 && model->index(0, 0).data(FileItemModel::PathRole).toString() == files.filePath("p108searchneedle-one/other.txt"));
 		QCOMPARE(global->incremental_search_text, QString("p108searchneedle"));
 		QCOMPARE(model->rowCount(), 2);
 		QCOMPARE(model->unfilteredCount(), 2);
@@ -642,8 +681,8 @@ private slots:
 			auto *item = tree->itemFromIidl(ItemIdList(files.filePath(folder)));
 			QVERIFY(item);
 			tree->setCurrentItem(item);
-			QTRY_VERIFY(reset.count() > 0);
-			QCOMPARE(model->rowCount(), 2);
+			QTRY_COMPARE(model->rowCount(), 2);
+			QVERIFY(reset.count() > 0);
 			QCOMPARE(model->unfilteredCount(), 2);
 		}
 		QTest::keyClick(tree, Qt::Key_Escape);
@@ -658,7 +697,7 @@ private slots:
 		QCOMPARE(global->incremental_search_text, QString("other"));
 		QTRY_COMPARE(model->rowCount(), 1);
 		QCOMPARE(model->unfilteredCount(), 2);
-		QCOMPARE(model->index(0, 0).data(PathRole).toString(), files.filePath("p108searchneedle-one/other.txt"));
+		QCOMPARE(model->index(0, 0).data(FileItemModel::PathRole).toString(), files.filePath("p108searchneedle-one/other.txt"));
 		QTest::keyClicks(view, thumbnail ? "[" : "]");
 		view = thumbnail ? static_cast<QAbstractItemView *>(window.findChild<FileTableView *>("tableView"))
 			: window.findChild<ThumbnailView *>("thumbnailView");
@@ -709,7 +748,7 @@ private slots:
 			view->selectionModel()->clearSelection();
 			for (int row = 0; row < model->rowCount(); ++row) {
 				auto index = model->index(row, 0);
-				if (index.data(PathRole).toString().contains("beta")) {
+				if (index.data(FileItemModel::PathRole).toString().contains("beta")) {
 					view->selectionModel()->select(index, QItemSelectionModel::Select | QItemSelectionModel::Rows);
 					view->selectionModel()->setCurrentIndex(index, QItemSelectionModel::NoUpdate);
 				}
@@ -730,9 +769,9 @@ private slots:
 		QCOMPARE(model->rowCount(), zero_matches ? 0 : query.isEmpty() ? 4 : 3);
 		QVERIFY(hasStatus(window, query.isEmpty() ? "4 items" : zero_matches ? "0/4 items" : "3/4 items"));
 		if (!zero_matches) {
-			QCOMPARE(view->currentIndex().data(PathRole).toString(), files.filePath("beta2.txt"));
+			QCOMPARE(view->currentIndex().data(FileItemModel::PathRole).toString(), files.filePath("beta2.txt"));
 			QStringList selected;
-			for (auto const &index : view->selectionModel()->selectedRows()) selected.push_back(index.data(PathRole).toString());
+			for (auto const &index : view->selectionModel()->selectedRows()) selected.push_back(index.data(FileItemModel::PathRole).toString());
 			selected.sort();
 			QCOMPARE(selected, (QStringList{files.filePath("beta1.txt"), files.filePath("beta2.txt")}));
 		}
@@ -794,7 +833,7 @@ private slots:
 		QCOMPARE(global->incremental_search_text, action == 0 ? QString("beta") : QString());
 		if (action == 2) {
 			QTRY_COMPARE(model->rowCount(), 1);
-			QCOMPARE(model->index(0, 0).data(PathRole).toString(), files.filePath("other/other.txt"));
+			QCOMPARE(model->index(0, 0).data(FileItemModel::PathRole).toString(), files.filePath("other/other.txt"));
 		} else {
 			QCOMPARE(model->unfilteredCount(), 3);
 			QCOMPARE(model->rowCount(), action == 0 ? 1 : 3);
@@ -850,7 +889,7 @@ private slots:
 		QVERIFY(window.currentIIDL() == current);
 		QCOMPARE(tree->currentItem(), selected);
 		QCOMPARE(window.fileitemmodel()->rowCount(), 1);
-		QCOMPARE(window.fileitemmodel()->data(window.fileitemmodel()->index(0, 0), PathRole).toString(), files.filePath("b.txt"));
+		QCOMPARE(window.fileitemmodel()->data(window.fileitemmodel()->index(0, 0), FileItemModel::PathRole).toString(), files.filePath("b.txt"));
 		QCOMPARE(global->incremental_search_text, QString("b"));
 	}
 

@@ -249,7 +249,7 @@
         <enum>QFrame::Shadow::Sunken</enum>
        </property>
        <property name="currentIndex">
-        <number>1</number>
+        <number>0</number>
        </property>
        <widget class="QWidget" name="page_list">
         <layout class="QVBoxLayout" name="verticalLayout_5">
@@ -281,6 +281,9 @@
            </property>
            <property name="selectionBehavior">
             <enum>QAbstractItemView::SelectionBehavior::SelectRows</enum>
+           </property>
+           <property name="horizontalScrollMode">
+            <enum>QAbstractItemView::ScrollMode::ScrollPerPixel</enum>
            </property>
            <property name="showGrid">
             <bool>false</bool>

@@ -10,7 +10,7 @@
 
 class ThumbnailViewDelegate : public QStyledItemDelegate {
 public:
-	Kind kind_ = Kind::File;
+	FileItemModel::Kind kind_ = FileItemModel::Kind::File;
 	QString location;
 	ThumbnailViewDelegate(QWidget *parent = nullptr)
 		: QStyledItemDelegate(parent)
@@ -34,7 +34,7 @@ public:
 		FileInfo2 const *fileinfo = widget->model()->fileinfo(index);
 		Q_ASSERT(fileinfo);
 		if (!fileinfo) return;
-		bool bookmark = kind_ == Kind::ChromeBookmark || index.data(KindRole).toInt() == (int)Kind::ChromeBookmark;
+		bool bookmark = kind_ == FileItemModel::Kind::ChromeBookmark || index.data(FileItemModel::KindRole).toInt() == (int)FileItemModel::Kind::ChromeBookmark;
 
 		QString name = index.data(Qt::DisplayRole).toString();
 
@@ -90,7 +90,7 @@ alpha = 1.0;
 			if (!fileinfo->isdir && global->is_extension_archive_file(suffix)) {
 				icon = global->makeArchiveFileIcon(suffix);
 			} else {
-				QString text = index.data(PathRole).toString();
+				QString text = index.data(FileItemModel::PathRole).toString();
 				if (!text.isEmpty()) {
 					QImage image = widget->queryThubmanil(*fileinfo);
 					if (!image.isNull()) {
@@ -266,7 +266,7 @@ const IncrementalSearchFilter &ThumbnailView::filter() const
 	return model()->filter();
 }
 
-void ThumbnailView::setKind(Kind kind)
+void ThumbnailView::setKind(FileItemModel::Kind kind)
 {
 	m->item_delegate->kind_ = kind;
 }
@@ -280,7 +280,7 @@ QString ThumbnailView::currentPath() const
 {
 	auto indexes = selectionModel()->selectedIndexes();
 	if (indexes.size() > 0) {
-		return model()->data(indexes[0], PathRole).toString();
+		return model()->data(indexes[0], FileItemModel::PathRole).toString();
 	}
 	return QString();
 }

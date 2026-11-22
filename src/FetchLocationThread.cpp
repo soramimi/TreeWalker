@@ -136,7 +136,7 @@ LocationData FetchLocationThread::fetchImpl(LocationData data, StopRequested con
 	auto fs = createFileSystemProvider(data.iidl);
 	if (stop()) return data;
 	if (!fs->hasReadPermission()) {
-		data.kind = Kind::NotPermittedDirectory;
+		data.kind = FileItemModel::Kind::NotPermittedDirectory;
 		return data;
 	}
 	while (!stop() && fs->fetch()) {
@@ -146,9 +146,7 @@ LocationData FetchLocationThread::fetchImpl(LocationData data, StopRequested con
 		if (stop()) return data;
 		auto info = fs->fileInfo();
 		if (directories_only && !info.isdir) continue;
-		if (info && !(info.isdir && (info.name == "." || info.name == ".."))) data.files.push_back(std::move(info));
+		if (info && !(info.isdir && (info.name_ == "." || info.name_ == ".."))) data.files.push_back(std::move(info));
 	}
-	MainWindow::sortFileInfoList(&data.files);
-
 	return data;
 }

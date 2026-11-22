@@ -32,8 +32,8 @@ public:
 
 	void setPath(QString const &path);
 	
-	void setKind(Kind kind);
-	Kind kind() const;
+	void setKind(FileItemModel::Kind kind);
+	FileItemModel::Kind kind() const;
 
 	QString currentPath() const;
 	// QWidget interface

@@ -78,7 +78,7 @@ bool enumerateNetwork(NetworkDiscoveryThread::Visitor const &visit)
 		if (SHGetPathFromIDListW(absolute.get(), path)) entry.info.path = QString::fromWCharArray(path);
 		if (entry.info.path.isEmpty() && !(shell_info.dwAttributes & SFGAO_FOLDER)) continue;
 		entry.info.iidl = ItemIdList(QByteArray(reinterpret_cast<char const *>(absolute.get()), ILGetSize(absolute.get())));
-		entry.info.name = QString::fromWCharArray(shell_info.szDisplayName);
+		entry.info.set_name(QString::fromWCharArray(shell_info.szDisplayName));
 		entry.info.isdir = entry.info.path.isEmpty() || (shell_info.dwAttributes & SFGAO_FOLDER);
 		entry.info.ishidden = (shell_info.dwAttributes & SFGAO_HIDDEN) != 0;
 
@@ -178,7 +178,7 @@ void NetworkDiscoveryThread::run(std::shared_ptr<State> state, Enumerator enumer
 					state->files.push_back(entry);
 					changed = true;
 					++state->revision;
-				} else if (existing->info.name != entry.info.name || existing->info.path != entry.info.path
+				} else if (existing->info.name() != entry.info.name() || existing->info.path != entry.info.path
 					|| existing->info.isdir != entry.info.isdir || existing->info.ishidden != entry.info.ishidden
 					|| existing->icon != entry.icon) {
 					*existing = entry;

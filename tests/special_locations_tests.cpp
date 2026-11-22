@@ -72,7 +72,7 @@ private:
 	static FolderTreeItem *findBookmarkRoot(FolderTreeItem *item)
 	{
 		if (!item) return nullptr;
-		if (static_cast<Kind>(item->data(0, KindRole).toInt()) == Kind::ChromeBookmark) return item;
+		if (static_cast<FileItemModel::Kind>(item->data(0, FileItemModel::KindRole).toInt()) == FileItemModel::Kind::ChromeBookmark) return item;
 		for (int i = 0; i < item->childCount(); ++i) {
 			if (auto *found = findBookmarkRoot(item->child(i))) return found;
 		}
@@ -157,17 +157,17 @@ private slots:
 		window.openDir(ItemIdList(directory.path()));
 		QTRY_VERIFY_WITH_TIMEOUT(rowNamed(model, "ordinary.txt").isValid(), 5000);
 		LocationData stale;
-		stale.kind = static_cast<Kind>(tree->currentItem()->data(0, KindRole).toInt());
-		stale.iidl = tree->currentItem()->data(0, IidlRole).value<ItemIdList>();
-		stale.path = tree->currentItem()->data(0, PathRole).toString();
+		stale.kind = static_cast<FileItemModel::Kind>(tree->currentItem()->data(0, FileItemModel::KindRole).toInt());
+		stale.iidl = tree->currentItem()->data(0, FileItemModel::IidlRole).value<ItemIdList>();
+		stale.path = tree->currentItem()->data(0, FileItemModel::PathRole).toString();
 		FileInfo2 stale_file;
-		stale_file.name = "stale.txt";
+		stale_file.set_name("stale.txt");
 		stale_file.path = directory.filePath("stale.txt");
 		stale.files.push_back(stale_file);
 
 		tree->setCurrentItem(bar);
 
-		QCOMPARE(model->kind_, Kind::ChromeBookmark);
+		QCOMPARE(model->kind_, FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(model->columnCount(), 2);
 		QCOMPARE(model->rowCount(), 5);
 		QVERIFY(rowNamed(model, "Top URL").isValid());
@@ -178,20 +178,20 @@ private slots:
 		// Interrupt an in-flight filesystem refresh by selecting a bookmark.
 		window.openDir(ItemIdList(directory.path()));
 		tree->setCurrentItem(empty);
-		QCOMPARE(model->kind_, Kind::ChromeBookmark);
+		QCOMPARE(model->kind_, FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(model->rowCount(), 0);
 		window.onRefreshFileListDone(stale);
-		QCOMPARE(model->kind_, Kind::ChromeBookmark);
+		QCOMPARE(model->kind_, FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(model->rowCount(), 0);
 		QTest::qWait(400);
-		QCOMPARE(model->kind_, Kind::ChromeBookmark);
+		QCOMPARE(model->kind_, FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(model->rowCount(), 0);
 
 		tree->setCurrentItem(root);
 		QCOMPARE(model->rowCount(), 2);
 		QVERIFY(rowNamed(model, "Test bookmarks").isValid());
 		QVERIFY(rowNamed(model, "Other").isValid());
-		QCOMPARE(window.findChild<FileTableView *>("tableView")->kind(), Kind::ChromeBookmark);
+		QCOMPARE(window.findChild<FileTableView *>("tableView")->kind(), FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(window.findChild<ThumbnailView *>("thumbnailView")->model(), model);
 	}
 
@@ -229,9 +229,9 @@ private slots:
 		window.openTableItem(index);
 
 		QCOMPARE(tree->currentItem(), occurrence == 0 ? first : second);
-		QCOMPARE(model->kind_, Kind::ChromeBookmark);
+		QCOMPARE(model->kind_, FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(model->rowCount(), 1);
-		QCOMPARE(model->index(0, 0).data(UrlRole).toString(), address);
+		QCOMPARE(model->index(0, 0).data(FileItemModel::UrlRole).toString(), address);
 		QVERIFY(opened_urls_.isEmpty());
 		window.openTableItem(model->index(0, 0));
 		QCOMPARE(opened_urls_.size(), 1);
@@ -269,10 +269,10 @@ private slots:
 		QCOMPARE(tree->currentItem()->text(), QString("Nested"));
 		QVERIFY(tree->currentItem()->parent());
 		QCOMPARE(tree->currentItem()->parent()->text(), QString("Parent"));
-		QCOMPARE(model->kind_, Kind::ChromeBookmark);
+		QCOMPARE(model->kind_, FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(model->rowCount(), 1);
 		QCOMPARE(model->index(0, 0).data().toString(), QString("Updated"));
-		QCOMPARE(model->index(0, 0).data(UrlRole).toString(), QString("https://updated.example/"));
+		QCOMPARE(model->index(0, 0).data(FileItemModel::UrlRole).toString(), QString("https://updated.example/"));
 		bar = childNamed(bookmarkRoot(tree), "Test bookmarks");
 		QVERIFY(bar);
 		QCOMPARE(bar->childCount(), 3);
@@ -310,16 +310,16 @@ private slots:
 		QCOMPARE(computer_item->childCount(), child_count);
 		QCOMPARE(bookmarkRoot(tree), root);
 		auto *model = window.fileitemmodel();
-		QCOMPARE(model->kind_, Kind::Directory);
+		QCOMPARE(model->kind_, FileItemModel::Kind::Directory);
 		auto index = rowNamed(model, root->text());
 		QVERIFY(index.isValid());
-		QCOMPARE(index.data(KindRole).toInt(), static_cast<int>(Kind::ChromeBookmark));
-		QCOMPARE(index.data(IidlRole).value<ItemIdList>().path(), window.location(root));
+		QCOMPARE(index.data(FileItemModel::KindRole).toInt(), static_cast<int>(FileItemModel::Kind::ChromeBookmark));
+		QCOMPARE(index.data(FileItemModel::IidlRole).value<ItemIdList>().path(), window.location(root));
 
 		window.openTableItem(index);
 
 		QCOMPARE(tree->currentItem(), root);
-		QCOMPARE(model->kind_, Kind::ChromeBookmark);
+		QCOMPARE(model->kind_, FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(model->rowCount(), 2);
 	}
 
@@ -347,7 +347,7 @@ private slots:
 			QCOMPARE(bar->childCount(), 4);
 			QCOMPARE(childNamed(bar, "Parent"), parent);
 			QCOMPARE(childNamed(parent, "Nested"), nested);
-			QCOMPARE(window.fileitemmodel()->kind_, Kind::ChromeBookmark);
+			QCOMPARE(window.fileitemmodel()->kind_, FileItemModel::Kind::ChromeBookmark);
 			QCOMPARE(window.fileitemmodel()->rowCount(), 5);
 		}
 	}
@@ -370,18 +370,18 @@ private slots:
 		auto *model = window.fileitemmodel();
 		model->beginResetModel();
 		model->clearItems();
-		model->setKind(Kind::Directory);
+		model->setKind(FileItemModel::Kind::Directory);
 		FileItemModel::Item item;
 		item.name = "Virtual drives folder";
-		item.info.name = item.name;
+		item.info.set_name(item.name);
 		item.info.isdir = true;
 		item.info.iidl = drives;
 		model->addItem(std::move(item));
 		model->endResetModel();
 		auto index = model->index(0, 0);
-		QVERIFY(index.data(PathRole).toString().isEmpty());
-		QVERIFY(index.data(UrlRole).toString().isEmpty());
-		QCOMPARE(index.data(IidlRole).value<ItemIdList>(), drives);
+		QVERIFY(index.data(FileItemModel::PathRole).toString().isEmpty());
+		QVERIFY(index.data(FileItemModel::UrlRole).toString().isEmpty());
+		QCOMPARE(index.data(FileItemModel::IidlRole).value<ItemIdList>(), drives);
 		QSignalSpy resets(model, &QAbstractItemModel::modelReset);
 		QVERIFY(resets.isValid());
 
@@ -394,11 +394,11 @@ private slots:
 		QVERIFY(window.locationInfo(window.currentLocation()));
 		QTRY_VERIFY_WITH_TIMEOUT(resets.count() > 0, 5000);
 		QCOMPARE(model->columnCount(), 4);
-		QVERIFY(model->kind_ == Kind::Directory || model->kind_ == Kind::SubDirectory);
+		QVERIFY(model->kind_ == FileItemModel::Kind::Directory || model->kind_ == FileItemModel::Kind::SubDirectory);
 		QString const drive_path = QDir::cleanPath(QDir::fromNativeSeparators(QDir::rootPath()));
 		bool found_drive = false;
 		for (int row = 0; row < model->rowCount(); ++row) {
-			QString const path = model->index(row, 0).data(PathRole).toString();
+			QString const path = model->index(row, 0).data(FileItemModel::PathRole).toString();
 			if (QDir::cleanPath(QDir::fromNativeSeparators(path)) == drive_path) found_drive = true;
 		}
 		QVERIFY(found_drive);
@@ -421,18 +421,18 @@ private slots:
 		ItemIdList const desktop(QByteArray(2, '\0'));
 
 		window.openDir(desktop);
-		QTRY_VERIFY_WITH_TIMEOUT(model->kind_ == static_cast<Kind>(tree->currentItem()->data(0, KindRole).toInt()), 5000);
+		QTRY_VERIFY_WITH_TIMEOUT(model->kind_ == static_cast<FileItemModel::Kind>(tree->currentItem()->data(0, FileItemModel::KindRole).toInt()), 5000);
 		QCOMPARE(model->columnCount(), 4);
 		QVERIFY(window.locationInfo(tree->currentItem()));
 		QVERIFY(window.locationInfo(window.currentLocation()));
 		tree->setCurrentItem(bar);
-		QCOMPARE(model->kind_, Kind::ChromeBookmark);
+		QCOMPARE(model->kind_, FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(model->rowCount(), 5);
 		window.openDir(desktop);
-		QTRY_VERIFY_WITH_TIMEOUT(model->kind_ != Kind::ChromeBookmark, 5000);
+		QTRY_VERIFY_WITH_TIMEOUT(model->kind_ != FileItemModel::Kind::ChromeBookmark, 5000);
 		QCOMPARE(tree->currentItem()->iidl(), desktop);
 		tree->setCurrentItem(root);
-		QCOMPARE(model->kind_, Kind::ChromeBookmark);
+		QCOMPARE(model->kind_, FileItemModel::Kind::ChromeBookmark);
 		QCOMPARE(model->rowCount(), 2);
 	}
 #endif

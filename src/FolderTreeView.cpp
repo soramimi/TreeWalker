@@ -340,7 +340,7 @@ void FolderTreeItem::setData(int column, int role, const QVariant &data)
 {
 	if (role == Qt::DisplayRole) {
 		text_ = data.toString();
-	} else if (role == IidlRole) {
+	} else if (role == FileItemModel::IidlRole) {
 		iidl_ = data.value<ItemIdList>();
 	}
 	data_map_[role] = data;
@@ -355,7 +355,7 @@ QVariant FolderTreeItem::data(int column, int role) const
 	if (role == Qt::DisplayRole) {
 		return text();
 	}
-	if (role == IidlRole) {
+	if (role == FileItemModel::IidlRole) {
 		return QVariant::fromValue(iidl());
 	}
 	auto it = data_map_.find(role);

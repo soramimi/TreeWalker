@@ -19,7 +19,8 @@ FileSystemProviderPtr createFileSystemProvider(ItemIdList const &iidl);
 struct FileInfo2 {
 	ItemIdList iidl;
 	QString path;
-	QString name;
+	QString name_;
+	QString type;
 	qint64 size = 0;
 	QDateTime modified;
 	QIcon icon;
@@ -27,6 +28,20 @@ struct FileInfo2 {
 	bool isdir = false;
 	bool ishidden = false;
 
+	QString name() const
+	{
+		return name_;
+	}
+	void set_name(QString const &name)
+	{
+		name_ = name;
+		type = {};
+		int i = name_.lastIndexOf('.');
+		if (i > 0) {
+			type = name_.mid(i + 1).toLower();
+		}
+	}
+	
 	operator bool () const
 	{
 #ifdef Q_OS_WIN

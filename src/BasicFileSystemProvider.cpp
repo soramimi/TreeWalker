@@ -46,7 +46,7 @@ QString BasicFileSystemProvider::fileName() const
 
 void BasicFileSystemProvider::setFileInfo(FileInfo2 *fi, QString const &name, QString const &path)
 {
-	fi->name = name;
+	fi->set_name(name);
 	fi->path = path;
 #ifdef Q_OS_WIN
 	fi->iidl = path;

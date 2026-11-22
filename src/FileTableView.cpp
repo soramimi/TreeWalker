@@ -8,6 +8,7 @@
 #include <QMouseEvent>
 #include <QApplication>
 #include <QHeaderView>
+#include <QSignalBlocker>
 #include "IncrementalSearchHelper.h"
 
 namespace {
@@ -84,7 +85,7 @@ QRect drawItemViewText(bool strong_suffix, QStyle *s, QPainter *p, const QStyleO
 
 class FileTableItemDelegate : public QStyledItemDelegate {
 public:
-	Kind kind_ = Kind::File;
+	FileItemModel::Kind kind_ = FileItemModel::Kind::File;
 	QString path_;
 
 	FileTableItemDelegate(QObject *parent = nullptr)
@@ -122,7 +123,7 @@ public:
 				rIcon = o.rect;
 				rIcon.setWidth(rIcon.height());
 
-				QString suffix = fileinfo->name;
+				QString suffix = fileinfo->name_;
 				if (int i = suffix.lastIndexOf('.'); i > 0) {
 					suffix = suffix.mid(i + 1);
 				}
@@ -135,7 +136,7 @@ public:
 				o.rect.adjust(z, 0, 0, 0);
 			}
 			o.displayAlignment = Qt::AlignVCenter;
-			if (col == 1 && kind_ != Kind::ChromeBookmark) {
+			if (col == 1 && kind_ != FileItemModel::Kind::ChromeBookmark) {
 				o.displayAlignment |= Qt::AlignRight;
 			}
 			bool strong_suffix = false;
@@ -167,7 +168,7 @@ public:
 
 struct FileTableView::Private {
 	FileTableItemDelegate *item_delegate;
-	Kind kind = Kind::File;
+	FileItemModel::Kind kind = FileItemModel::Kind::File;
 	std::vector<int> column_width;
 	QTimer interval_timer_10ms;
 	int adjust_column_width_debounce = 0;
@@ -183,6 +184,8 @@ FileTableView::FileTableView(QWidget *parent)
 	setShowGrid(false);
 	setSelectionBehavior(QAbstractItemView::SelectRows);
 	setSelectionMode(QAbstractItemView::ExtendedSelection);
+	horizontalHeader()->setSortIndicator(0, Qt::AscendingOrder);
+	setSortingEnabled(true);
 
 	// horizontalHeader()->setStretchLastSection(true);
 
@@ -265,13 +268,23 @@ void FileTableView::setPath(const QString &path)
 	m->item_delegate->setPath(path);
 }
 
-void FileTableView::setKind(Kind kind)
+void FileTableView::setKind(FileItemModel::Kind kind)
 {
 	m->kind = kind;
 	m->item_delegate->kind_ = kind;
+	const bool sortable = kind != FileItemModel::Kind::ChromeBookmark;
+	auto *header = horizontalHeader();
+	header->setSectionsClickable(sortable);
+	header->setSortIndicatorShown(sortable);
+	if (sortable) {
+		if (auto *file_model = qobject_cast<FileItemModel *>(QTableView::model())) {
+			const QSignalBlocker block(header);
+			header->setSortIndicator(file_model->sortColumn(), file_model->sortOrder());
+		}
+	}
 }
 
-Kind FileTableView::kind() const
+FileItemModel::Kind FileTableView::kind() const
 {
 	return m->kind;
 }
@@ -280,7 +293,7 @@ QString FileTableView::currentPath() const
 {
 	auto indexes = selectionModel()->selectedRows();
 	if (indexes.size() > 0) {
-		return model()->data(indexes[0], PathRole).toString();
+		return model()->data(indexes[0], FileItemModel::PathRole).toString();
 	}
 	return QString();
 }

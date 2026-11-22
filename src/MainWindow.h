@@ -30,17 +30,17 @@ struct IShellFolder;
 using add_tree_child_fn_r = std::function<void(FolderTreeItem *parent, FolderTreeItem *item)>;
 
 struct LocationData {
-	Kind kind = Kind::File;
+	FileItemModel::Kind kind = FileItemModel::Kind::File;
 	ItemIdList iidl;
 	QString path;
 	std::vector<FileInfo2> files;
 	bool isDir() const
 	{
-		return kind == Kind::Directory || kind == Kind::SubDirectory || kind == Kind::NotPermittedDirectory;
+		return kind == FileItemModel::Kind::Directory || kind == FileItemModel::Kind::SubDirectory || kind == FileItemModel::Kind::NotPermittedDirectory;
 	}
 	bool isPermitted() const
 	{
-		return kind != Kind::NotPermittedDirectory;
+		return kind != FileItemModel::Kind::NotPermittedDirectory;
 	}
 	bool operator == (LocationData const &r) const
 	{
@@ -98,7 +98,6 @@ public:
 	void toggleBookbarkBarVisible();
 public:
 	void reloadContents();
-	static void sortFileInfoList(std::vector<FileInfo2> *list);
 	void setStatusBarText(const QString &text);
 	std::vector<FileInfo2> windowsMyComputerFiles();
 	QImage queryThumbnail(FileInfo2 const &info);

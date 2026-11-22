@@ -306,7 +306,7 @@ private slots:
 				probe->during = apartmentType(&probe->during_type);
 				return result;
 			});
-			worker.data.kind = Kind::Directory;
+			worker.data.kind = FileItemModel::Kind::Directory;
 			worker.data.iidl = drives;
 			worker.data.path = "//itemidlist//" + QString::fromLatin1(drives.iidl().toHex());
 			int notifications = 0;
@@ -347,7 +347,7 @@ private slots:
 			probe->after_outer = probeApartment(COINIT_APARTMENTTHREADED);
 			throw error;
 		});
-		worker.data.kind = Kind::Directory;
+		worker.data.kind = FileItemModel::Kind::Directory;
 		worker.data.iidl = FileItem::getDrives().idlist();
 		worker.data.path = "//itemidlist//" + QString::fromLatin1(worker.data.iidl.iidl().toHex());
 		int failures = 0;

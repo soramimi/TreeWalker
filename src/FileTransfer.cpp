@@ -65,9 +65,9 @@ QStringList selectedPaths(QAbstractItemView const *view)
 	QStringList paths;
 	if (!view || !view->selectionModel()) return paths;
 	for (QModelIndex const &index : view->selectionModel()->selectedRows(0)) {
-		const Kind kind = static_cast<Kind>(index.data(KindRole).toInt());
-		if (kind == Kind::ChromeBookmark || kind == Kind::Placeholder) return {};
-		const QString path = index.data(PathRole).toString();
+		const FileItemModel::Kind kind = static_cast<FileItemModel::Kind>(index.data(FileItemModel::KindRole).toInt());
+		if (kind == FileItemModel::Kind::ChromeBookmark || kind == FileItemModel::Kind::Placeholder) return {};
+		const QString path = index.data(FileItemModel::PathRole).toString();
 		QFileInfo info(path);
 		if (path.isEmpty() || !info.isAbsolute() || (!info.exists() && !info.isSymLink()) || (!info.isFile() && !info.isDir() && !info.isSymLink()) || info.isRoot()) return {};
 		paths.push_back(info.absoluteFilePath());
@@ -80,9 +80,9 @@ QString destinationPath(QModelIndex const &index, QString const &background, boo
 	QString path = background;
 	if (tree || (drop && index.isValid())) {
 		if (!index.isValid()) return {};
-		const Kind kind = static_cast<Kind>(index.data(KindRole).toInt());
-		if (kind == Kind::ChromeBookmark || kind == Kind::Placeholder) return {};
-		path = index.data(PathRole).toString();
+		const FileItemModel::Kind kind = static_cast<FileItemModel::Kind>(index.data(FileItemModel::KindRole).toInt());
+		if (kind == FileItemModel::Kind::ChromeBookmark || kind == FileItemModel::Kind::Placeholder) return {};
+		path = index.data(FileItemModel::PathRole).toString();
 	}
 	QFileInfo info(path);
 	return info.isAbsolute() && info.isDir() ? info.canonicalFilePath() : QString();

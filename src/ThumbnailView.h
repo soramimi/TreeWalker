@@ -30,7 +30,7 @@ public:
 	~ThumbnailView();
 	MainWindow *mainwindow();
 	MainWindow const *mainwindow() const;
-	void setKind(Kind kind);
+	void setKind(FileItemModel::Kind kind);
 	void updateThumbnail(QString const &path, QImage const &image);
 	QString currentPath() const;
 	void selectRow(int row);

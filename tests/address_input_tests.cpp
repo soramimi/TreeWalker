@@ -55,12 +55,12 @@ private:
 		auto *root = new FolderTreeItem;
 		FileInfo2 info;
 		BasicFileSystemProvider::setFileInfo(&info, "test root", path);
-		root->setText(0, info.name);
-		root->setData(0, KindRole, int(Kind::Directory));
-		root->setData(0, PathRole, path);
-		root->setData(0, IidlRole, QVariant::fromValue(info.iidl));
+		root->setText(0, info.name());
+		root->setData(0, FileItemModel::KindRole, int(FileItemModel::Kind::Directory));
+		root->setData(0, FileItemModel::PathRole, path);
+		root->setData(0, FileItemModel::IidlRole, QVariant::fromValue(info.iidl));
 		auto *placeholder = new FolderTreeItem;
-		placeholder->setData(0, KindRole, int(Kind::Placeholder));
+		placeholder->setData(0, FileItemModel::KindRole, int(FileItemModel::Kind::Placeholder));
 		root->addChild(placeholder);
 		tree_->addTopLevelItem(root);
 		tree_->setExpanded(root, true);
@@ -81,8 +81,8 @@ private slots:
 		QVERIFY(address_ && tree_ && table_ && thumbnails_);
 		table_->setModel(window_->fileitemmodel());
 		thumbnails_->setModel(window_->fileitemmodel());
-		table_->setKind(Kind::Directory);
-		thumbnails_->setKind(Kind::Directory);
+		table_->setKind(FileItemModel::Kind::Directory);
+		thumbnails_->setKind(FileItemModel::Kind::Directory);
 		window_->setViewMode(MainWindow::List);
 		window_->show();
 		window_->activateWindow();
@@ -328,7 +328,7 @@ private slots:
 		QTRY_COMPARE(window_->fileitemmodel()->rowCount(), initially_visible ? 2 : 4);
 		bool hidden_file = false;
 		for (int row = 0; row < window_->fileitemmodel()->rowCount(); ++row) {
-			hidden_file |= window_->fileitemmodel()->index(row, 0).data(PathRole).toString() == files.filePath("target/.hidden.txt");
+			hidden_file |= window_->fileitemmodel()->index(row, 0).data(FileItemModel::PathRole).toString() == files.filePath("target/.hidden.txt");
 		}
 		QCOMPARE(hidden_file, !initially_visible);
 	}
@@ -376,15 +376,15 @@ private slots:
 	{
 		auto *root = new FolderTreeItem;
 		root->setText(0, "bookmarks");
-		root->setData(0, KindRole, int(Kind::ChromeBookmark));
-		root->setData(0, PathRole, "//bookmark//");
-		root->setData(0, IidlRole, QVariant::fromValue(ItemIdList(QString("//bookmark//"))));
+		root->setData(0, FileItemModel::KindRole, int(FileItemModel::Kind::ChromeBookmark));
+		root->setData(0, FileItemModel::PathRole, "//bookmark//");
+		root->setData(0, FileItemModel::IidlRole, QVariant::fromValue(ItemIdList(QString("//bookmark//"))));
 		auto *child = new FolderTreeItem;
 		child->setText(0, ".bookmark");
 		const QString path = "//bookmark//dot";
-		child->setData(0, KindRole, int(Kind::ChromeBookmark));
-		child->setData(0, PathRole, path);
-		child->setData(0, IidlRole, QVariant::fromValue(ItemIdList(path)));
+		child->setData(0, FileItemModel::KindRole, int(FileItemModel::Kind::ChromeBookmark));
+		child->setData(0, FileItemModel::PathRole, path);
+		child->setData(0, FileItemModel::IidlRole, QVariant::fromValue(ItemIdList(path)));
 		root->addChild(child);
 		tree_->addTopLevelItem(root);
 		tree_->setCurrentItem(root);

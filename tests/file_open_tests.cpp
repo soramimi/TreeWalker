@@ -28,10 +28,12 @@ class FileOpenTests : public QObject {
 		std::vector<FileItemModel::Item> items;
 		for (auto const &path : paths) {
 			FileItemModel::Item item;
-			item.path = item.info.path = path; item.name = item.info.name = QFileInfo(path).fileName();
+			item.path = item.info.path = path;
+			item.name = QFileInfo(path).fileName();
+			item.info.set_name(item.name);
 			item.info.iidl = ItemIdList(path); items.push_back(item);
 		}
-		window.fileitemmodel()->replaceItems(Kind::Directory, std::move(items), {});
+		window.fileitemmodel()->replaceItems(FileItemModel::Kind::Directory, std::move(items), {});
 		window.setViewMode(thumbnail ? MainWindow::Thumbnail : MainWindow::List);
 		window.show(); window.activateWindow(); window.setFocusItemsView();
 		return thumbnail ? static_cast<QAbstractItemView *>(icons) : table;
@@ -74,8 +76,17 @@ private slots:
 		QTest::keyClicks(view, "txt");
 		QCOMPARE(global->incremental_search_text, QString("txt"));
 		QCOMPARE(window.fileitemmodel()->rowCount(), 2);
-		view->setCurrentIndex(window.fileitemmodel()->index(0, 0));
-		view->selectionModel()->select(window.fileitemmodel()->index(1, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+		QModelIndex target;
+		QModelIndex other_item;
+		for (int row = 0; row < view->model()->rowCount(); ++row) {
+			auto index = view->model()->index(row, 0);
+			const QString item_path = index.data(FileItemModel::PathRole).toString();
+			if (item_path == path) target = index;
+			if (item_path == other) other_item = index;
+		}
+		QVERIFY(target.isValid() && other_item.isValid());
+		view->setCurrentIndex(target);
+		view->selectionModel()->select(other_item, QItemSelectionModel::Select | QItemSelectionModel::Rows);
 		const QPoint position = view->visualRect(view->currentIndex()).center();
 		if (!enter) QTest::mouseClick(view->viewport(), Qt::LeftButton, Qt::NoModifier, position);
 		const QModelIndexList selection = view->selectionModel()->selectedRows();
@@ -94,8 +105,11 @@ private slots:
 				if (action == "Directory") changed &= QDir().mkdir(path);
 			}
 			if (action == "Reset") {
-				FileItemModel::Item item; item.path = item.info.path = other; item.name = item.info.name = "another.txt";
-				window.fileitemmodel()->replaceItems(Kind::Directory, {item}, {});
+				FileItemModel::Item item;
+				item.path = item.info.path = other;
+				item.name = "another.txt";
+				item.info.set_name(item.name);
+				window.fileitemmodel()->replaceItems(FileItemModel::Kind::Directory, {item}, {});
 				view->setCurrentIndex(window.fileitemmodel()->index(0, 0));
 				// Direct reentry while the modal dialog is running must do nothing.
 				window.openTableItem(view->currentIndex());
