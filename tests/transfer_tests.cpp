@@ -154,14 +154,35 @@ private slots:
 			if (request.operation != filetransfer::Operation::Copy) return false;
 			return filetransfer::execute(request)[0].outcome == filetransfer::Outcome::Completed;
 		});
-		filetransfer::DragSession session({file.fileName()}); auto mime = session.mimeData();
-		QVERIFY(!mime->hasUrls());
+		filetransfer::DragSession session({file.fileName()}, view != 0);
+		auto mime = session.mimeData();
+		QCOMPARE(mime->hasUrls(), view != 0);
 		QPoint point = widget->visualRect(model.index(0, 0)).center();
-		QDragEnterEvent enter(point, Qt::CopyAction | Qt::MoveAction, mime.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers));
+		QDragEnterEvent enter(point, Qt::CopyAction, mime.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers));
 		QApplication::sendEvent(widget->viewport(), &enter); QVERIFY(enter.isAccepted());
-		QDropEvent drop(point, Qt::CopyAction | Qt::MoveAction, mime.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers));
+		QDropEvent drop(point, Qt::CopyAction, mime.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers));
 		QApplication::sendEvent(widget->viewport(), &drop); QVERIFY(drop.isAccepted()); QCOMPARE(confirmations, 1);
+		QCOMPARE(drop.dropAction(), Qt::CopyAction);
 		QVERIFY(QFileInfo::exists(dir.filePath("target/data"))); QVERIFY(QFileInfo::exists(file.fileName()));
+	}
+
+	void dragExportsOnlyFiles()
+	{
+		QTemporaryDir root;
+		QVERIFY(root.isValid());
+		QFile first(root.filePath(QStringLiteral("日本語 # space.txt")));
+		QFile second(root.filePath("second.png"));
+		QVERIFY(first.open(QIODevice::WriteOnly));
+		QVERIFY(second.open(QIODevice::WriteOnly));
+		first.close();
+		second.close();
+
+		filetransfer::DragSession session({first.fileName(), root.path(), second.fileName(), root.filePath("missing")}, true);
+		const auto mime = session.mimeData();
+		const QList<QUrl> expected{QUrl::fromLocalFile(first.fileName()), QUrl::fromLocalFile(second.fileName())};
+		QVERIFY(mime->hasFormat("text/uri-list"));
+		QCOMPARE(mime->urls(), expected);
+		QCOMPARE(filetransfer::clipboardRequest(mime.get()).sources, QStringList({first.fileName(), second.fileName()}));
 	}
 
 	void dropAlwaysAsks_data()

@@ -263,9 +263,9 @@ private slots:
 		QTRY_VERIFY(view->visualRect(source_index).isValid() && view->visualRect(folder_index).isValid());
 		const QPoint source_point = view->viewport()->mapTo(&window, view->visualRect(source_index).center());
 		const QPoint folder_point = view->viewport()->mapTo(&window, view->visualRect(folder_index).center());
-		filetransfer::DragSession drag({source});
+		filetransfer::DragSession drag({source}, true);
 		const auto mime = drag.mimeData();
-		const auto actions = Qt::CopyAction | Qt::MoveAction;
+		const auto actions = Qt::CopyAction;
 		const auto keys = Qt::KeyboardModifiers(modifiers);
 		// Send through the window so Qt must register the drag target on entry.
 		QDragEnterEvent enter(source_point, actions, mime.get(), Qt::LeftButton, keys);

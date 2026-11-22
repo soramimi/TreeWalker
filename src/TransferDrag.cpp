@@ -4,6 +4,7 @@
 #include <QDrag>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QFileInfo>
 #include <QMouseEvent>
 #include <QMessageBox>
 #include <QPushButton>
@@ -20,11 +21,24 @@ QHash<QByteArray, QStringList> activeDrags;
 
 }
 
-DragSession::DragSession(QStringList const &paths) : token_(QUuid::createUuid().toByteArray()) { activeDrags.insert(token_, paths); }
+DragSession::DragSession(QStringList const &paths, bool exposeFiles)
+	: token_(QUuid::createUuid().toByteArray())
+{
+	activeDrags.insert(token_, paths);
+	if (exposeFiles) {
+		for (auto const &path : paths) {
+			QFileInfo info(path);
+			if (info.isAbsolute() && info.isFile()) urls_.push_back(QUrl::fromLocalFile(path));
+		}
+	}
+}
 DragSession::~DragSession() { activeDrags.remove(token_); }
 std::unique_ptr<QMimeData> DragSession::mimeData() const
 {
-	auto mime = std::make_unique<QMimeData>(); mime->setData(dragFormat, token_); return mime;
+	auto mime = std::make_unique<QMimeData>();
+	mime->setData(dragFormat, token_);
+	if (!urls_.isEmpty()) mime->setUrls(urls_);
+	return mime;
 }
 
 bool confirmDrop(Request *request, Qt::DropActions allowed, QWidget *parent)
@@ -97,11 +111,10 @@ bool DragController::eventFilter(QObject *watched, QEvent *event)
 			pressed_ = false;
 			auto paths = selectedPaths(view_);
 			if (paths.isEmpty()) return false;
-			DragSession session(paths);
+			DragSession session(paths, !tree_);
 			QPointer<QDrag> drag = new QDrag(view_);
-			// Do not export URLs: an external target could act without our confirmation.
 			drag->setMimeData(session.mimeData().release());
-			drag->exec(Qt::CopyAction | Qt::MoveAction, Qt::CopyAction);
+			drag->exec(Qt::CopyAction);
 			if (drag) drag->deleteLater();
 			return true;
 		}
@@ -133,8 +146,13 @@ bool DragController::eventFilter(QObject *watched, QEvent *event)
 		auto *drop = static_cast<QDropEvent *>(event);
 		indicator_->hide(); scroll_.stop();
 		auto request = requestFor(drop->mimeData(), drop->position().toPoint());
+		auto allowed = drop->possibleActions();
+		// An active TreeWalker session can move files through our own transfer job.
+		if ((allowed & Qt::CopyAction) && drop->mimeData() && activeDrags.contains(drop->mimeData()->data(dragFormat))) {
+			allowed |= Qt::MoveAction;
+		}
 		qCDebug(dragLog) << "drop" << drop->possibleActions() << request.sources << request.destination;
-		if (validate(&request).isEmpty() && handler_(request, drop->possibleActions()) && (drop->possibleActions() & Qt::CopyAction)) {
+		if (validate(&request).isEmpty() && handler_(request, allowed) && (drop->possibleActions() & Qt::CopyAction)) {
 			drop->setDropAction(Qt::CopyAction); drop->accept();
 		} else drop->ignore();
 		return true;

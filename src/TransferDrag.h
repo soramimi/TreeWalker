@@ -5,12 +5,14 @@
 #include <QMimeData>
 #include <QRubberBand>
 #include <QTimer>
+#include <QUrl>
 #include <functional>
 namespace filetransfer {
 class DragSession {
 	QByteArray token_;
+	QList<QUrl> urls_;
 public:
-	explicit DragSession(QStringList const &paths);
+	DragSession(QStringList const &paths, bool exposeFiles);
 	~DragSession();
 	DragSession(DragSession const &) = delete;
 	DragSession &operator=(DragSession const &) = delete;
