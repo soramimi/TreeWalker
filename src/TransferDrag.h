@@ -3,7 +3,6 @@
 #include "FileTransfer.h"
 #include <QPointer>
 #include <QMimeData>
-#include <QRubberBand>
 #include <QTimer>
 #include <QUrl>
 #include <functional>
@@ -32,7 +31,7 @@ private:
 	QPoint press_, hover_;
 	std::function<QString()> directory_;
 	Handler handler_;
-	QRubberBand *indicator_;
+	QWidget *indicator_;
 	QTimer scroll_;
 	Request requestFor(QMimeData const *mime, QPoint const &position) const;
 	void indicate(QPoint const &position);
