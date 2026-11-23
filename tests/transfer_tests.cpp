@@ -145,7 +145,8 @@ private slots:
 		else widget = std::make_unique<QListView>();
 		QStandardItemModel model; auto *folder = new QStandardItem("target");
 		folder->setData(dir.filePath("target"), FileItemModel::PathRole); folder->setData(int(FileItemModel::Kind::Directory), FileItemModel::KindRole); model.appendRow(folder);
-		widget->setModel(&model); widget->resize(300, 200); widget->show(); QCoreApplication::processEvents();
+		widget->setModel(&model); widget->resize(300, 200);
+		const auto existingChildren = widget->viewport()->findChildren<QWidget *>(Qt::FindDirectChildrenOnly);
 		int confirmations = 0;
 		filetransfer::DragController controller(widget.get(), view == 0, [&] { return dir.filePath("target"); }, [&](filetransfer::Request request, Qt::DropActions allowed) {
 			++confirmations;
@@ -154,14 +155,26 @@ private slots:
 			if (request.operation != filetransfer::Operation::Copy) return false;
 			return filetransfer::execute(request)[0].outcome == filetransfer::Outcome::Completed;
 		});
+		auto children = widget->viewport()->findChildren<QWidget *>(Qt::FindDirectChildrenOnly);
+		for (auto *child : existingChildren) children.removeAll(child);
+		QCOMPARE(children.size(), 1);
+		auto *indicator = children.front();
+		widget->show();
+		QVERIFY(widget->isVisible());
+		QVERIFY(!indicator->isVisible());
 		filetransfer::DragSession session({file.fileName()}, view != 0);
 		auto mime = session.mimeData();
 		QCOMPARE(mime->hasUrls(), view != 0);
 		QPoint point = widget->visualRect(model.index(0, 0)).center();
 		QDragEnterEvent enter(point, Qt::CopyAction, mime.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers));
 		QApplication::sendEvent(widget->viewport(), &enter); QVERIFY(enter.isAccepted());
+		QDragMoveEvent move(point, Qt::CopyAction, mime.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers));
+		QApplication::sendEvent(widget->viewport(), &move);
+		QVERIFY(move.isAccepted());
+		QVERIFY(indicator->isVisible());
 		QDropEvent drop(point, Qt::CopyAction, mime.get(), Qt::LeftButton, Qt::KeyboardModifiers(modifiers));
 		QApplication::sendEvent(widget->viewport(), &drop); QVERIFY(drop.isAccepted()); QCOMPARE(confirmations, 1);
+		QVERIFY(!indicator->isVisible());
 		QCOMPARE(drop.dropAction(), Qt::CopyAction);
 		QVERIFY(QFileInfo::exists(dir.filePath("target/data"))); QVERIFY(QFileInfo::exists(file.fileName()));
 	}

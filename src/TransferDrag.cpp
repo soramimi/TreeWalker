@@ -26,6 +26,7 @@ public:
 	explicit DropIndicator(QWidget *parent) : QWidget(parent)
 	{
 		setAttribute(Qt::WA_TransparentForMouseEvents);
+		hide();
 	}
 
 protected:
