@@ -131,6 +131,9 @@ public:
 private:
 	void clearIconCache();
 	void copySelection(bool cut);
+	void copyPaths(QStringList const &paths, bool cut);
+	void showItemContextMenu(QAbstractItemView *view, QPoint const &pos);
+	void refreshAfterItemOperation();
 	void pasteSelection();
 	void refreshAfterTransfer(filetransfer::Request const &request, filetransfer::Results const &results);
 	void refreshTransferredTrees();
@@ -143,7 +146,6 @@ private slots:
 	void on_action_test_triggered();
 	void on_action_view_detailed_triggered();
 	void on_action_view_thumbnails_triggered();
-	void on_tableView_customContextMenuRequested(const QPoint &pos);
 	void on_treeView_currentItemChanged(FolderTreeItem *current, FolderTreeItem *previous);
 private:
 	void updateFileView();

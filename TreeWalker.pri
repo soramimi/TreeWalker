@@ -8,7 +8,7 @@ INCLUDEPATH += $$PWD/../QtDarkStyle
 
 INCLUDEPATH += $$PWD/subprojects/IncrementalSearchPlugin/src/
 
-win32:LIBS += -lcomctl32 -luser32 -lole32 -lgdi32
+win32:LIBS += -lcomctl32 -luser32 -lole32 -lgdi32 -lshell32
 
 SOURCES += \
 	$$PWD/src/FileItemModel.cpp \

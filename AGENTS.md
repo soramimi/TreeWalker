@@ -61,7 +61,7 @@ MSVC の依存ライブラリのパスは `common.pri` で `C:/vcpkg/installed/x
 - 検索プラグインを変更した場合は、テストと同じ構成でプラグインを先に再ビルドする。古い DLL で新しいソースを検証したことにしない。
 - Qt Test は `TreeWalkerTests.exe -platform offscreen` で実行できる。必要に応じて `QT_FORCE_STDERR_LOGGING=1` を設定する。
 - ツリーモデルの変更では `tests/model_notifications_tests.cpp`、入力では `tests/address_input_tests.cpp`、特殊ロケーションでは `tests/special_locations_tests.cpp` を確認する。
-- 設定では `tests/startup_settings_tests.cpp`、日本語検索では `tests/reading_search_tests.cpp`、Windows の COM やワーカーでは `tests/com_workers_tests.cpp` / `tests/network_discovery_tests.cpp` を確認する。
+- 設定では `tests/startup_settings_tests.cpp`、日本語検索では `subprojects/IncrementalSearchPlugin/tests/` の独立テストと `tests/reading_search_integration_tests.cpp`、Windows の COM やワーカーでは `tests/com_workers_tests.cpp` / `tests/network_discovery_tests.cpp` を確認する。
 - `WindowsFileSystemProvider::hasReadPermission()` の戻り値・解放処理には `tests/empty_shell_read_permission.py` を使用する。Python 3 と Windows の MinGW g++ が必要になる。
 - テストには一時ファイルや制御可能なバックエンドを使い、ユーザーの INI や Chrome プロファイルへ依存させない。外部アプリの起動はハンドラーで捕捉する。
 - 変更に応じたビルド・テストを行い、確認した構成と結果を報告する。Windows 専用コードは Windows で検証し、未検証の環境を区別する。
