@@ -25,7 +25,6 @@ private:
 	};
 	static QByteArray makeShellIDListArray_(const QList<QByteArray> &list);
 	QList<QByteArray> listFromPath(QString path);
-	bool GetContextMenu(void **ppContextMenu, int &iMenuType);
 public:
 	WindowsShellAPI();
 	~WindowsShellAPI();
@@ -34,6 +33,8 @@ public:
 	// The cached interfaces and their COM apartment belong to the calling thread.
 	static WindowsShellAPI &forCurrentThread();
 	bool isReady() const;
+	enum class ContextMenuResult { Cancelled, Invoked, Open, Rename, Failed };
+	ContextMenuResult showContextMenu(HWND owner, ItemIdList const &item, bool confirmOpen, bool allowRename);
 	IMalloc *imalloc();
 	static QByteArray getByteArrayFromITEMIDLIST(const ITEMIDLIST *iidl);
 	static QByteArray parent(QByteArray const &idl);

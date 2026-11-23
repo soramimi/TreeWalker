@@ -4,6 +4,9 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QDragEnterEvent>
+#include <QContextMenuEvent>
+#include <QMenu>
+#include <QTimer>
 #include <QFile>
 #include <QKeyEvent>
 #include <QPersistentModelIndex>
@@ -335,6 +338,66 @@ private slots:
 		name->setText("renamed");
 		QCOMPARE(dialog.text(), QString("renamed.txt"));
 	}
+
+#ifndef Q_OS_WIN
+	void itemContextMenuCopiesClickedTarget_data()
+	{
+		QTest::addColumn<QString>("viewName");
+		QTest::newRow("tree") << QString("treeView");
+		QTest::newRow("details") << QString("tableView");
+		QTest::newRow("thumbnails") << QString("thumbnailView");
+	}
+
+	void itemContextMenuCopiesClickedTarget()
+	{
+		QFETCH(QString, viewName);
+		QTemporaryDir directory(QDir::currentPath() + "/treewalker-menu-XXXXXX");
+		QVERIFY(directory.isValid());
+		const QString file = directory.filePath("file.txt");
+		QVERIFY(createFile(file));
+		MainWindow window;
+		QVERIFY(prepareWindow(window));
+		window.show();
+		window.makeTreeCompletely();
+		window.openDir(ItemIdList(directory.path()));
+		QTRY_COMPARE(window.currentIIDL().path(), directory.path());
+		QTRY_COMPARE(window.fileitemmodel()->rowCount(), 1);
+		if (viewName == "thumbnailView") window.setViewMode(MainWindow::Thumbnail);
+		auto *view = window.findChild<QAbstractItemView *>(viewName);
+		QVERIFY(view);
+		const bool tree = viewName == "treeView";
+		const QModelIndex index = tree ? view->currentIndex() : window.fileitemmodel()->index(0, 0);
+		QVERIFY(index.isValid());
+		view->scrollTo(index);
+		const QPoint pos = view->visualRect(index).center();
+		QCOMPARE(view->indexAt(pos), index);
+
+		auto saved = std::make_unique<QMimeData>();
+		if (auto *mime = QApplication::clipboard()->mimeData()) {
+			for (auto const &format : mime->formats()) saved->setData(format, mime->data(format));
+		}
+		bool copied = false;
+		QTimer::singleShot(0, &window, [&] {
+			auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+			if (!menu) return;
+			for (auto *action : menu->actions()) {
+				if (action->text() == MainWindow::tr("Copy") && action->isEnabled()) {
+					action->trigger();
+					copied = true;
+					break;
+				}
+			}
+			menu->close();
+		});
+		QContextMenuEvent event(QContextMenuEvent::Mouse, pos, view->viewport()->mapToGlobal(pos));
+		QApplication::sendEvent(view->viewport(), &event);
+		const auto request = filetransfer::clipboardRequest(QApplication::clipboard()->mimeData());
+		QApplication::clipboard()->setMimeData(saved.release());
+		QVERIFY(copied);
+		QCOMPARE(request.operation, filetransfer::Operation::Copy);
+		QCOMPARE(request.sources, QStringList{tree ? directory.path() : file});
+	}
+#endif
 
 	void filesystemActionsValidateNamesAndPreserveExistingFiles()
 	{

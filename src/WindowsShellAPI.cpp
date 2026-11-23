@@ -6,7 +6,9 @@
 #include <QList>
 #include <QThread>
 #include <memory>
+#include <type_traits>
 #include <shlobj.h>
+#include <commctrl.h>
 #include <stdint.h>
 #include <vector>
 #include <string.h>
@@ -602,3 +604,96 @@ void WindowsShellAPI::test()
 	// qDebug() << ret.width() << ret.height();
 }
 
+
+namespace {
+
+struct ShellRelease {
+	template<class T> void operator()(T *object) const { object->Release(); }
+};
+
+struct ShellMenuMessageHandler {
+	IContextMenu2 *menu2;
+	IContextMenu3 *menu3;
+
+	static LRESULT CALLBACK dispatch(HWND window, UINT message, WPARAM wparam, LPARAM lparam,
+		UINT_PTR id, DWORD_PTR data)
+	{
+		if (message == WM_NCDESTROY) RemoveWindowSubclass(window, dispatch, id);
+		const bool itemMessage = (message == WM_DRAWITEM || message == WM_MEASUREITEM) && wparam == 0;
+		if (itemMessage || message == WM_INITMENUPOPUP || message == WM_MENUCHAR) {
+			auto &handler = *reinterpret_cast<ShellMenuMessageHandler *>(data);
+			if (handler.menu3) {
+				LRESULT result = 0;
+				if (handler.menu3->HandleMenuMsg2(message, wparam, lparam, &result) == S_OK) return result;
+			} else if (handler.menu2 && message != WM_MENUCHAR
+				&& handler.menu2->HandleMenuMsg(message, wparam, lparam) == S_OK) {
+				return itemMessage ? TRUE : 0;
+			}
+		}
+		return DefSubclassProc(window, message, wparam, lparam);
+	}
+};
+
+}
+
+WindowsShellAPI::ContextMenuResult WindowsShellAPI::showContextMenu(HWND owner, ItemIdList const &item,
+	bool confirmOpen, bool allowRename)
+{
+	QByteArray idl = item.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST ? item.iidl() : parseDisplayName(item.path());
+	if (idl.size() < 3) return ContextMenuResult::Failed;
+
+	IShellFolder *parent = nullptr;
+	PCUITEMID_CHILD child = nullptr;
+	HRESULT bound = SHBindToParent(reinterpret_cast<PCIDLIST_ABSOLUTE>(idl.constData()), IID_PPV_ARGS(&parent), &child);
+	std::unique_ptr<IShellFolder, ShellRelease> folder(parent);
+	if (FAILED(bound) || !folder || !child) return ContextMenuResult::Failed;
+
+	IContextMenu *context = nullptr;
+	HRESULT queried = folder->GetUIObjectOf(owner, 1, &child, IID_IContextMenu, nullptr, reinterpret_cast<void **>(&context));
+	std::unique_ptr<IContextMenu, ShellRelease> shellMenu(context);
+	if (FAILED(queried) || !shellMenu) return ContextMenuResult::Failed;
+
+	std::unique_ptr<std::remove_pointer_t<HMENU>, decltype(&DestroyMenu)> popup(CreatePopupMenu(), DestroyMenu);
+	if (!popup) return ContextMenuResult::Failed;
+	const UINT firstCommand = 1;
+	UINT flags = CMF_NORMAL;
+	if (allowRename) flags |= CMF_CANRENAME;
+	if (GetKeyState(VK_SHIFT) < 0) flags |= CMF_EXTENDEDVERBS;
+	if (FAILED(shellMenu->QueryContextMenu(popup.get(), 0, firstCommand, 0x7FFF, flags))) return ContextMenuResult::Failed;
+
+	IContextMenu2 *context2 = nullptr;
+	IContextMenu3 *context3 = nullptr;
+	if (FAILED(shellMenu->QueryInterface(IID_PPV_ARGS(&context3)))) {
+		shellMenu->QueryInterface(IID_PPV_ARGS(&context2));
+	}
+	std::unique_ptr<IContextMenu2, ShellRelease> menu2(context2);
+	std::unique_ptr<IContextMenu3, ShellRelease> menu3(context3);
+	ShellMenuMessageHandler handler{menu2.get(), menu3.get()};
+	const auto subclassId = reinterpret_cast<UINT_PTR>(&handler);
+	const bool forwardMessages = menu2 || menu3;
+	if (forwardMessages && !SetWindowSubclass(owner, ShellMenuMessageHandler::dispatch, subclassId, subclassId)) {
+		return ContextMenuResult::Failed;
+	}
+	POINT point{};
+	GetCursorPos(&point);
+	const UINT command = TrackPopupMenuEx(popup.get(), TPM_RETURNCMD | TPM_RIGHTBUTTON, point.x, point.y, owner, nullptr);
+	if (forwardMessages) RemoveWindowSubclass(owner, ShellMenuMessageHandler::dispatch, subclassId);
+	if (command == 0) return ContextMenuResult::Cancelled;
+
+	const UINT offset = command - firstCommand;
+	char verb[128]{};
+	if (SUCCEEDED(shellMenu->GetCommandString(offset, GCS_VERBA, nullptr, verb, sizeof(verb)))) {
+		if (confirmOpen && qstricmp(verb, "open") == 0) return ContextMenuResult::Open;
+		if (allowRename && qstricmp(verb, "rename") == 0) return ContextMenuResult::Rename;
+	}
+	CMINVOKECOMMANDINFOEX invoke{};
+	invoke.cbSize = sizeof(invoke);
+	invoke.fMask = CMIC_MASK_UNICODE | CMIC_MASK_PTINVOKE | CMIC_MASK_NOASYNC;
+	invoke.hwnd = owner;
+	invoke.lpVerb = MAKEINTRESOURCEA(offset);
+	invoke.lpVerbW = MAKEINTRESOURCEW(offset);
+	invoke.nShow = SW_SHOWNORMAL;
+	invoke.ptInvoke = point;
+	return SUCCEEDED(shellMenu->InvokeCommand(reinterpret_cast<CMINVOKECOMMANDINFO *>(&invoke)))
+		? ContextMenuResult::Invoked : ContextMenuResult::Failed;
+}

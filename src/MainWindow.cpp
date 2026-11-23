@@ -20,6 +20,8 @@
 #include <QInputDialog>
 #include <QRegularExpression>
 #include <QKeyEvent>
+#include <QMenu>
+#include <QPersistentModelIndex>
 #include <QScopedValueRollback>
 #include <QSignalBlocker>
 #include <QStandardPaths>
@@ -130,6 +132,7 @@ struct MainWindow::Private {
 	QList<std::shared_ptr<FetchLocationThread>> fetch_location_threads;
 	quint64 fetch_generation = 0;
 	bool location_loading = false;
+	bool context_menu_open = false;
 	struct ItemIdentity {
 		ItemIdList iidl;
 		QString path;
@@ -267,6 +270,15 @@ MainWindow::MainWindow(QWidget *parent, FetchLocationFunction fetcher, Thumbnail
 
 	connect(ui->tableView, &FileTableView::itemDoubleClicked, this, &MainWindow::openTableItem);
 	connect(ui->thumbnailView, &QAbstractItemView::doubleClicked, this, &MainWindow::openTableItem);
+
+	for (auto *view : {static_cast<QAbstractItemView *>(ui->treeView),
+	                   static_cast<QAbstractItemView *>(ui->tableView),
+	                   static_cast<QAbstractItemView *>(ui->thumbnailView)}) {
+		view->setContextMenuPolicy(Qt::CustomContextMenu);
+		connect(view, &QWidget::customContextMenuRequested, this, [this, view](QPoint const &pos) {
+			showItemContextMenu(view, pos);
+		});
+	}
 
 #ifdef Q_OS_WIN
 	m->network_changed_timer.setSingleShot(true);
@@ -1760,7 +1772,11 @@ void MainWindow::refreshAfterTransfer(filetransfer::Request const &request, file
 void MainWindow::copySelection(bool cut)
 {
 	auto *view = qobject_cast<QAbstractItemView *>(QApplication::focusWidget());
-	auto paths = filetransfer::selectedPaths(view);
+	copyPaths(filetransfer::selectedPaths(view), cut);
+}
+
+void MainWindow::copyPaths(QStringList const &paths, bool cut)
+{
 	if (paths.isEmpty()) { setStatusBarText(tr("Select filesystem files or folders first.")); return; }
 	auto mime = filetransfer::clipboardData(paths, cut ? filetransfer::Operation::Move : filetransfer::Operation::Copy,
 		QUuid::createUuid().toString(QUuid::WithoutBraces));
@@ -2308,20 +2324,115 @@ void MainWindow::makeBookmarkMap(QString const &path, QJsonValue v, int depth, F
 	}
 }
 
-void MainWindow::on_tableView_customContextMenuRequested(const QPoint &pos)
+void MainWindow::showItemContextMenu(QAbstractItemView *view, QPoint const &pos)
 {
-	QPoint pt = QCursor::pos() + QPoint(8, -8);
-	QMenu menu;
-	QAction *a_create_folder = menu.addAction(tr("Create folder"));
-	a_create_folder->setEnabled(m->current_location.isDir() && QFileInfo(m->current_location.path).isDir());
-	QAction *a = menu.exec(pt);
-	if (a) {
-		if (a == a_create_folder) {
-			bool accepted = false;
-			QString name = QInputDialog::getText(this, tr("Create folder"), tr("Folder name:"), QLineEdit::Normal, {}, &accepted);
-			if (accepted) createFolder(name);
+	if (m->context_menu_open) return;
+	QScopedValueRollback<bool> showingMenu(m->context_menu_open, true);
+	const QModelIndex hit = view->indexAt(pos);
+	const QPersistentModelIndex index(hit.siblingAtColumn(0));
+	const bool tree = view == ui->treeView;
+	const auto kind = static_cast<FileItemModel::Kind>(index.data(FileItemModel::KindRole).toInt());
+	if ((tree && !index.isValid()) || (index.isValid() && kind == FileItemModel::Kind::Placeholder)) return;
+
+	const QString path = index.data(FileItemModel::PathRole).toString();
+	const ItemIdList id = index.data(FileItemModel::IidlRole).value<ItemIdList>();
+	const QFileInfo info(path);
+	const bool local = kind != FileItemModel::Kind::ChromeBookmark && info.isAbsolute()
+		&& (info.isFile() || info.isDir() || info.isSymLink());
+	const bool mutableItem = local && !info.isRoot();
+
+	auto open = [&] {
+		if (!index.isValid()) return;
+		if (!tree) openTableItem(index);
+		else if (!id.empty()) openDir(id);
+		else if (local) openDir(ItemIdList(path));
+	};
+	auto rename = [&] {
+		if (info.isDir() && !info.isSymLink()) renameFolder(path);
+		else renameFile(path);
+	};
+
+#ifdef Q_OS_WIN
+	if (index.isValid()) {
+		const bool shellItem = kind != FileItemModel::Kind::ChromeBookmark
+			&& !id.empty() && id.type() == ItemIdList::Type::WIN_SHELL_ITEMIDLIST;
+		if (local || shellItem) {
+			using Result = WindowsShellAPI::ContextMenuResult;
+			auto &shell = WindowsShellAPI::forCurrentThread();
+			switch (shell.showContextMenu(reinterpret_cast<HWND>(winId()), shellItem ? id : ItemIdList(path),
+				local && info.isFile(), mutableItem)) {
+			case Result::Cancelled: return;
+			case Result::Invoked: refreshAfterItemOperation(); return;
+			case Result::Open: openFileWithConfirmation(path); return;
+			case Result::Rename: rename(); return;
+			case Result::Failed:
+				setStatusBarText(tr("Could not show the Windows Shell menu or run its command."));
+				return;
+			}
 		}
 	}
+#endif
+
+	const QString destination = local && info.isDir() ? info.absoluteFilePath()
+		: filetransfer::destinationPath(index, m->current_location.path, tree, false);
+	QStringList paths;
+	if (mutableItem) {
+		if (view->selectionModel() && view->selectionModel()->isSelected(index)) paths = filetransfer::selectedPaths(view);
+		if (paths.isEmpty()) paths.push_back(path);
+	}
+
+	QMenu menu(this);
+	if (index.isValid()) {
+		menu.addAction(tr("Open"), this, open);
+		menu.addSeparator();
+		menu.addAction(tr("Cut"), this, [&] { copyPaths(paths, true); })->setEnabled(!paths.isEmpty());
+		menu.addAction(tr("Copy"), this, [&] { copyPaths(paths, false); })->setEnabled(!paths.isEmpty());
+	}
+	auto *paste = menu.addAction(tr("Paste"), this, [&] {
+		auto *mime = QApplication::clipboard()->mimeData();
+		auto request = filetransfer::clipboardRequest(mime);
+		request.destination = destination;
+		startTransfer(request, filetransfer::clipboardToken(mime));
+	});
+	paste->setEnabled(!destination.isEmpty() && !filetransfer::clipboardRequest(QApplication::clipboard()->mimeData()).sources.isEmpty());
+	if (index.isValid()) {
+		menu.addSeparator();
+		menu.addAction(tr("Delete"), this, [&] {
+			if (QMessageBox::question(this, tr("Delete item"), tr("Move this item to the Trash?"),
+				QMessageBox::Yes | QMessageBox::Cancel, QMessageBox::Cancel) != QMessageBox::Yes) return;
+			QFile file(path);
+			if (file.moveToTrash()) refreshAfterItemOperation();
+			else setStatusBarText(tr("Could not move this item to the Trash: %1").arg(file.errorString()));
+		})->setEnabled(mutableItem);
+		menu.addAction(tr("Rename"), this, rename)->setEnabled(mutableItem);
+	}
+	if (!tree) {
+		menu.addSeparator();
+		menu.addAction(tr("Create folder"), this, [&] {
+			bool accepted = false;
+			const QString name = QInputDialog::getText(this, tr("Create folder"), tr("Folder name:"), QLineEdit::Normal, {}, &accepted);
+			if (accepted) createFolder(name);
+		})->setEnabled(m->current_location.isDir() && QFileInfo(m->current_location.path).isDir());
+	}
+	menu.exec(view->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::refreshAfterItemOperation()
+{
+	QString current = m->current_location.path;
+	if (m->current_location.isDir() && !current.isEmpty() && !QFileInfo(current).isDir()) {
+		do {
+			const QString parent = QFileInfo(current).absolutePath();
+			if (parent == current) break;
+			current = parent;
+		} while (!QFileInfo(current).isDir());
+		if (QFileInfo(current).isDir()) {
+			makeTreeCompletely();
+			openDir(ItemIdList(current));
+			return;
+		}
+	}
+	updateViews();
 }
 
 void MainWindow::fetchBookmarks(QString const &sourcePath)
