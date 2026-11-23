@@ -6,6 +6,8 @@
 #include <QDropEvent>
 #include <QFileInfo>
 #include <QMouseEvent>
+#include <QPainter>
+#include <QWidget>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScrollBar>
@@ -18,6 +20,23 @@ Q_LOGGING_CATEGORY(dragLog, "treewalker.transfer.drag", QtWarningMsg)
 namespace {
 const char *dragFormat = "application/x-treewalker-private-drag";
 QHash<QByteArray, QStringList> activeDrags;
+
+class DropIndicator : public QWidget {
+public:
+	explicit DropIndicator(QWidget *parent) : QWidget(parent)
+	{
+		setAttribute(Qt::WA_TransparentForMouseEvents);
+	}
+
+protected:
+	void paintEvent(QPaintEvent *) override
+	{
+		QPainter painter(this);
+		painter.setPen(QPen(palette().color(QPalette::Highlight), 2));
+		painter.setBrush(Qt::NoBrush);
+		painter.drawRect(QRectF(rect()).adjusted(1, 1, -1, -1));
+	}
+};
 
 }
 
@@ -65,11 +84,10 @@ bool confirmDrop(Request *request, Qt::DropActions allowed, QWidget *parent)
 }
 
 DragController::DragController(QAbstractItemView *view, bool tree, std::function<QString()> directory, Handler handler)
-	: QObject(view), view_(view), tree_(tree), directory_(std::move(directory)), handler_(std::move(handler)), indicator_(new QRubberBand(QRubberBand::Rectangle, view->viewport()))
+	: QObject(view), view_(view), tree_(tree), directory_(std::move(directory)), handler_(std::move(handler)), indicator_(new DropIndicator(view->viewport()))
 {
 	view->setAcceptDrops(true); view->viewport()->setAcceptDrops(true);
 	view->setDragEnabled(false); // The controller owns the complete file protocol.
-	indicator_->setAttribute(Qt::WA_TransparentForMouseEvents);
 	view->viewport()->installEventFilter(this);
 	view->installEventFilter(this);
 	scroll_.setInterval(60);
