@@ -44,7 +44,7 @@ int runModelNotificationTests(int argc, char **argv);
 int runAddressInputTests(int argc, char **argv);
 int runSpecialLocationTests(int argc, char **argv);
 int runStartupSettingsTests(int argc, char **argv);
-int runReadingSearchTests(int argc, char **argv);
+int runReadingSearchIntegrationTests(int argc, char **argv);
 int runThumbnailLoaderTests(int argc, char **argv);
 int runWorkerShutdownTests(int argc, char **argv);
 int blockedWorkersChild();
@@ -1098,7 +1098,7 @@ int main(int argc, char **argv)
 	result |= runAddressInputTests(argc, argv);
 	result |= runSpecialLocationTests(argc, argv);
 	result |= runStartupSettingsTests(argc, argv);
-	result |= runReadingSearchTests(argc, argv);
+	result |= runReadingSearchIntegrationTests(argc, argv);
 	result |= runThumbnailLoaderTests(argc, argv);
 	result |= runWorkerShutdownTests(argc, argv);
 	result |= runPluginLoadingTests(argc, argv);
