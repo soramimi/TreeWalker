@@ -42,24 +42,34 @@ void FileItemModel::updateIndices()
 			auto const &l = items_[left];
 			auto const &r = items_[right];
 			if (l.info.isdir != r.info.isdir) return l.info.isdir;
-			if (kind_ == Kind::ChromeBookmark) return QString::compare(l.path, r.path, Qt::CaseInsensitive) < 0;
 
 			int comparison = 0;
-			switch (sort_column_) {
-			case SortColumn::Name:
-				break;
-			case SortColumn::Size:
-				comparison = (l.size > r.size) - (l.size < r.size);
-				break;
-			case SortColumn::Type:
-				comparison = QString::compare(l.type, r.type, Qt::CaseInsensitive);
-				break;
-			case SortColumn::Modified:
-				comparison = (l.modified > r.modified) - (l.modified < r.modified);
-				break;
+
+			if (kind_ == Kind::ChromeBookmark) {
+				qDebug() << l.path << r.path;
+				switch (sort_column_) {
+				case SortColumn::URL:
+					comparison = QString::compare(l.path, r.path, Qt::CaseInsensitive) < 0;
+					break;
+				}
+				if (comparison == 0) comparison = QString::compare(l.name, r.name, Qt::CaseInsensitive);
+			} else {
+				switch (sort_column_) {
+				case SortColumn::Name:
+					break;
+				case SortColumn::Size:
+					comparison = (l.size > r.size) - (l.size < r.size);
+					break;
+				case SortColumn::Type:
+					comparison = QString::compare(l.type, r.type, Qt::CaseInsensitive);
+					break;
+				case SortColumn::Modified:
+					comparison = (l.modified > r.modified) - (l.modified < r.modified);
+					break;
+				}
+				if (comparison == 0) comparison = QString::compare(l.name, r.name, Qt::CaseInsensitive);
+				if (comparison == 0) comparison = QString::compare(l.path, r.path);
 			}
-			if (comparison == 0) comparison = QString::compare(l.name, r.name, Qt::CaseInsensitive);
-			if (comparison == 0) comparison = QString::compare(l.path, r.path);
 			return sort_order_ == Qt::AscendingOrder ? comparison < 0 : comparison > 0;
 		});
 		sorted_indices_valid_ = true;
@@ -265,10 +275,13 @@ QVariant FileItemModel::data(const QModelIndex &index, int role) const
 		case Qt::DecorationRole:
 			if (col == 0) {
 				FileItemModel::Item const *item = this->item(row);
-				if (!item->icon_.isNull()) return item->icon_;
 				if (global && item->info.isdir) {
 					return QIcon(QPixmap::fromImage(global->folder_icon));
 				}
+				if (kind_ == Kind::ChromeBookmark) {
+					return QIcon(QPixmap::fromImage(global->bookmark_icon));
+				}
+				if (!item->icon_.isNull()) return item->icon_;
 				if (global && global->mainwindow) return global->mainwindow->getIcon(item->info);
 				return item->info.icon;
 			}

@@ -36,6 +36,7 @@ struct ApplicationGlobal {
 
 	QImage folder_icon;
 	QImage zip_file_icon;
+	QImage bookmark_icon;
 
 	ApplicationSettings appsettings;
 

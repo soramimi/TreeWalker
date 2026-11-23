@@ -32,5 +32,6 @@
         <file>themes/radiobutton_unchecked.svg</file>
         <file>image/zipicon.png</file>
         <file>image/folder.png</file>
+        <file>image/bookmark.png</file>
     </qresource>
 </RCC>

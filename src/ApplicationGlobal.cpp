@@ -18,6 +18,7 @@ ApplicationGlobal::ApplicationGlobal()
 	{
 		folder_icon = QImage(":/image/folder.png");
 		zip_file_icon = QImage(":/image/zipicon.png");
+		bookmark_icon = QImage(":/image/bookmark.png");
 	}
 }
 

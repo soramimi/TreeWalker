@@ -36,6 +36,8 @@ public:
 		Size,
 		Type,
 		Modified,
+		
+		URL = Size, // same as Size for ChromeBookmark
 	};
 	
 public:
