@@ -135,6 +135,7 @@ private slots:
 		QCOMPARE(restored, QString("東京都.txt"));
 		QCOMPARE(QString::fromStdString(search.convertRomajiToKatakana("nn")), QString("ン"));
 		QCOMPARE(QString::fromStdString(search.convertRomajiToKatakana("konna")), QString("コンア"));
+		QCOMPARE(QString::fromStdString(search.convertRomajiToKatakana("konnna")), QString("コンナ"));
 	}
 
 	void modelAndPaintingUseCurrentName()
